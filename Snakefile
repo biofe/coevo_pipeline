@@ -18,6 +18,8 @@ Usage:
 configfile: "config.yaml"
 
 RESULTS = config["output"]["results_dir"]
+CONDA_ENV = config.get("conda_env", "environment.yml")
+CONFIG_FILE = workflow.configfiles[0] if workflow.configfiles else "config.yaml"
 
 
 include: "workflows/rules_blast.smk"

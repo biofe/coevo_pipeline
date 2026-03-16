@@ -18,3 +18,5 @@ alignment:
 
 output:
   results_dir: results
+
+conda_env: environment.yml

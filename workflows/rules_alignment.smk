@@ -9,6 +9,8 @@ rule align_16s:
         alignment=f"{config['output']['results_dir']}/alignment/16s_alignment.fasta",
     log:
         f"{config['output']['results_dir']}/logs/align_16s.log",
+    conda:
+        CONDA_ENV
     shell:
         """
         mafft --auto {input.fasta} > {output.alignment} 2> {log}
@@ -22,17 +24,10 @@ rule detect_motif:
     output:
         results=f"{config['output']['results_dir']}/analysis/motif_results.tsv",
     params:
-        positions=config["motif"]["positions"],
-        residues=config["motif"]["residues"],
-    run:
-        from coevo.sequences.motif_detection import detect_motif_in_alignment
-        from coevo.io.result_writer import write_dataframe
-
-        df = detect_motif_in_alignment(
-            alignment_file=input.alignment,
-            positions=params.positions,
-            residues=params.residues,
-        )
-        import os
-        os.makedirs(os.path.dirname(output.results), exist_ok=True)
-        write_dataframe(df, output.results)
+        config_file=CONFIG_FILE,
+    log:
+        f"{config['output']['results_dir']}/logs/detect_motif.log",
+    conda:
+        CONDA_ENV
+    shell:
+        "coevo detect-motif --config {params.config_file} > {log} 2>&1"

@@ -15,6 +15,8 @@ rule blast_protein:
         max_target_seqs=config["blast"]["max_target_seqs"],
     log:
         f"{config['output']['results_dir']}/logs/blast_protein.log",
+    conda:
+        CONDA_ENV
     shell:
         """
         blastp \
@@ -43,6 +45,8 @@ rule blast_16s:
         max_target_seqs=config["blast"]["max_target_seqs"],
     log:
         f"{config['output']['results_dir']}/logs/blast_16s.log",
+    conda:
+        CONDA_ENV
     shell:
         """
         blastn \
@@ -57,31 +61,19 @@ rule blast_16s:
         """
 
 
-rule extract_protein_taxids:
-    """Parse BLASTP hits and extract unique taxids."""
+rule extract_taxa:
+    """Parse BLAST hits and extract unique taxids for protein and RNA results."""
     input:
-        hits=f"{config['output']['results_dir']}/blast/protein_hits.tsv",
+        protein_hits=f"{config['output']['results_dir']}/blast/protein_hits.tsv",
+        rna_hits=f"{config['output']['results_dir']}/blast/rna_hits.tsv",
     output:
-        taxids=f"{config['output']['results_dir']}/taxa/protein_taxa.txt",
-    run:
-        from coevo.blast.blast_parser import parse_blast_tabular, extract_taxids
-        from coevo.taxonomy.taxid_utils import write_taxids
-
-        df = parse_blast_tabular(input.hits)
-        taxids = extract_taxids(df)
-        write_taxids(taxids, output.taxids)
-
-
-rule extract_rna_taxids:
-    """Parse BLASTN hits and extract unique taxids."""
-    input:
-        hits=f"{config['output']['results_dir']}/blast/rna_hits.tsv",
-    output:
-        taxids=f"{config['output']['results_dir']}/taxa/rna_taxa.txt",
-    run:
-        from coevo.blast.blast_parser import parse_blast_tabular, extract_taxids
-        from coevo.taxonomy.taxid_utils import write_taxids
-
-        df = parse_blast_tabular(input.hits)
-        taxids = extract_taxids(df)
-        write_taxids(taxids, output.taxids)
+        protein_taxids=f"{config['output']['results_dir']}/taxa/protein_taxa.txt",
+        rna_taxids=f"{config['output']['results_dir']}/taxa/rna_taxa.txt",
+    params:
+        config_file=CONFIG_FILE,
+    log:
+        f"{config['output']['results_dir']}/logs/extract_taxa.log",
+    conda:
+        CONDA_ENV
+    shell:
+        "coevo extract-taxa --config {params.config_file} > {log} 2>&1"
