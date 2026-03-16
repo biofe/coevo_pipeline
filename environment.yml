@@ -1,0 +1,12 @@
+name: coevo-pipeline
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.10
+  - blast
+  - mafft
+  - pip
+  - pip:
+    - -e .
