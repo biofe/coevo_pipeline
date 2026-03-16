@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coevo-rnase-16s"
+version = "0.1.0"
+description = "Pipeline to investigate co-occurrence of a protein family and a structural motif in bacterial 16S rRNA sequences"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "biofe" },
+]
+keywords = ["bioinformatics", "16S rRNA", "BLAST", "co-occurrence", "bacteria"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "biopython>=1.81",
+    "scipy>=1.10",
+    "typer>=0.9",
+    "loguru>=0.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+phylo = ["ete3>=3.1"]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+coevo = "coevo.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["coevo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

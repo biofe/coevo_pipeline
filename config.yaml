@@ -1,0 +1,20 @@
+blast:
+  protein_db: nr
+  nucleotide_db: core_nt
+  threads: 8
+  evalue: 0.05
+  max_target_seqs: 50000
+
+filters:
+  min_identity: 30
+  min_alignment_coverage: 0.7
+
+motif:
+  positions: [1408, 1409, 1410]
+  residues: ["A", "C", "G"]
+
+alignment:
+  method: mafft
+
+output:
+  results_dir: results
