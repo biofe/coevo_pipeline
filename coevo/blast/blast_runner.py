@@ -46,7 +46,7 @@ def run_blastp(
         "-num_threads", str(threads),
         "-evalue", str(evalue),
         "-max_target_seqs", str(max_target_seqs),
-        "-outfmt", "6 qseqid sseqid pident length evalue bitscore staxids",
+        "-outfmt", "6 qseqid sseqid pident length evalue bitscore staxids sseq",
     ]
     _run_blast(cmd, label="BLASTP")
 
@@ -89,7 +89,7 @@ def run_blastn(
         "-num_threads", str(threads),
         "-evalue", str(evalue),
         "-max_target_seqs", str(max_target_seqs),
-        "-outfmt", "6 qseqid sseqid pident length evalue bitscore staxids",
+        "-outfmt", "6 qseqid sseqid pident length evalue bitscore staxids sseq",
     ]
     _run_blast(cmd, label="BLASTN")
 

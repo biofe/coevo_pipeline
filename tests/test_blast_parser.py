@@ -13,6 +13,7 @@ from coevo.blast.blast_parser import (
     parse_blast_tabular,
     extract_taxids,
     filter_blast_hits,
+    deduplicate_blast_hits,
     BLAST_COLUMNS,
 )
 
@@ -23,10 +24,10 @@ from coevo.blast.blast_parser import (
 
 SAMPLE_TSV = textwrap.dedent(
     """\
-    query1\thit1\t98.5\t300\t1e-50\t500.0\t12345
-    query1\thit2\t45.2\t200\t1e-10\t200.0\t67890;11111
-    query2\thit3\t25.0\t100\t0.01\t80.0\tN/A
-    query2\thit4\t80.0\t250\t1e-30\t350.0\t22222
+    query1\thit1\t98.5\t300\t1e-50\t500.0\t12345\tACGTACGT
+    query1\thit2\t45.2\t200\t1e-10\t200.0\t67890;11111\tTTTTGGGG
+    query2\thit3\t25.0\t100\t0.01\t80.0\tN/A\tCCCCAAAA
+    query2\thit4\t80.0\t250\t1e-30\t350.0\t22222\tGGGGCCCC
     """
 )
 
@@ -154,3 +155,73 @@ class TestFilterBlastHits:
         filtered = filter_blast_hits(blast_df, min_identity=0.0, min_coverage=0.9, query_length=300)
         assert len(filtered) == 1
         assert filtered.iloc[0]["sseqid"] == "hit1"
+
+
+# ---------------------------------------------------------------------------
+# Tests for deduplicate_blast_hits
+# ---------------------------------------------------------------------------
+
+
+class TestDeduplicateBlastHits:
+    def _make_df(self, rows: list[tuple]) -> pd.DataFrame:
+        """Build a minimal BLAST DataFrame from (qseqid, sseqid, pident, length,
+        evalue, bitscore, staxids, sseq) tuples."""
+        return pd.DataFrame(rows, columns=BLAST_COLUMNS)
+
+    def test_no_duplicates_unchanged(self, blast_df: pd.DataFrame) -> None:
+        dedup = deduplicate_blast_hits(blast_df)
+        assert len(dedup) == len(blast_df)
+        assert set(dedup["sseqid"]) == set(blast_df["sseqid"])
+
+    def test_same_sseqid_same_sseq_keeps_best_bitscore(self) -> None:
+        rows = [
+            ("q", "acc1", 98.0, 300, 1e-50, 500.0, "1", "ACGT"),
+            ("q", "acc1", 95.0, 300, 1e-40, 400.0, "1", "ACGT"),
+        ]
+        df = self._make_df(rows)
+        dedup = deduplicate_blast_hits(df)
+        assert len(dedup) == 1
+        assert dedup.iloc[0]["bitscore"] == pytest.approx(500.0)
+
+    def test_same_sseqid_different_sseq_keeps_both(self) -> None:
+        """Same accession ID but different sequences must NOT be collapsed."""
+        rows = [
+            ("q", "acc1", 98.0, 300, 1e-50, 500.0, "1", "ACGTACGT"),
+            ("q", "acc1", 95.0, 300, 1e-40, 400.0, "1", "TTTTGGGG"),
+        ]
+        df = self._make_df(rows)
+        dedup = deduplicate_blast_hits(df)
+        assert len(dedup) == 2
+
+    def test_different_sseqid_same_sseq_keeps_both(self) -> None:
+        """Different accession IDs with identical sequences are distinct hits."""
+        rows = [
+            ("q", "acc1", 98.0, 300, 1e-50, 500.0, "1", "ACGT"),
+            ("q", "acc2", 98.0, 300, 1e-50, 500.0, "1", "ACGT"),
+        ]
+        df = self._make_df(rows)
+        dedup = deduplicate_blast_hits(df)
+        assert len(dedup) == 2
+
+    def test_empty_dataframe(self) -> None:
+        df = pd.DataFrame(columns=BLAST_COLUMNS)
+        dedup = deduplicate_blast_hits(df)
+        assert dedup.empty
+
+    def test_returns_dataframe(self, blast_df: pd.DataFrame) -> None:
+        dedup = deduplicate_blast_hits(blast_df)
+        assert isinstance(dedup, pd.DataFrame)
+        assert list(dedup.columns) == BLAST_COLUMNS
+        assert dedup.index.tolist() == list(range(len(dedup)))
+
+    def test_fallback_without_sseq_column(self) -> None:
+        """When sseq column is absent, deduplicate by sseqid alone."""
+        cols_no_sseq = [c for c in BLAST_COLUMNS if c != "sseq"]
+        rows = [
+            ("q", "acc1", 98.0, 300, 1e-50, 500.0, "1"),
+            ("q", "acc1", 95.0, 300, 1e-40, 400.0, "1"),
+        ]
+        df = pd.DataFrame(rows, columns=cols_no_sseq)
+        dedup = deduplicate_blast_hits(df)
+        assert len(dedup) == 1
+        assert dedup.iloc[0]["bitscore"] == pytest.approx(500.0)

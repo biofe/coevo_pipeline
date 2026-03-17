@@ -8,7 +8,7 @@ import pandas as pd
 from loguru import logger
 
 # Column order as specified by the BLAST -outfmt string used in blast_runner.py:
-# "6 qseqid sseqid pident length evalue bitscore staxids"
+# "6 qseqid sseqid pident length evalue bitscore staxids sseq"
 BLAST_COLUMNS = [
     "qseqid",
     "sseqid",
@@ -17,6 +17,7 @@ BLAST_COLUMNS = [
     "evalue",
     "bitscore",
     "staxids",
+    "sseq",
 ]
 
 BLAST_DTYPES: dict[str, type] = {
@@ -27,6 +28,7 @@ BLAST_DTYPES: dict[str, type] = {
     "evalue": float,
     "bitscore": float,
     "staxids": str,
+    "sseq": str,
 }
 
 
@@ -133,3 +135,53 @@ def filter_blast_hits(
         f"(min_identity={min_identity}, min_coverage={min_coverage})"
     )
     return filtered
+
+
+def deduplicate_blast_hits(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate BLAST hits by accession ID and subject sequence.
+
+    Rows sharing both the same subject accession (``sseqid``) and the same
+    aligned subject sequence (``sseq``) are treated as the same hit.  For
+    each such group, the row with the highest bitscore is retained.
+
+    Deduplication based solely on taxonomy ID or sequence ID is intentionally
+    avoided because multiple distinct sequences can share the same identifier
+    (e.g. multiple 16S rRNA entries with identical seqid but different
+    sequences).
+
+    If the ``sseq`` column is absent (e.g. older output files), deduplication
+    falls back to ``sseqid`` alone.
+
+    Parameters
+    ----------
+    df:
+        DataFrame returned by :func:`parse_blast_tabular`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Deduplicated DataFrame with reset index.
+    """
+    if df.empty:
+        return df.copy()
+
+    if "sseq" not in df.columns:
+        dedup = (
+            df.sort_values("bitscore", ascending=False)
+            .drop_duplicates(subset=["sseqid"])
+            .reset_index(drop=True)
+        )
+        logger.info(
+            f"Deduplicated BLAST hits (by sseqid only): {len(dedup)}/{len(df)} retained"
+        )
+        return dedup
+
+    dedup = (
+        df.sort_values("bitscore", ascending=False)
+        .drop_duplicates(subset=["sseqid", "sseq"])
+        .reset_index(drop=True)
+    )
+    logger.info(
+        f"Deduplicated BLAST hits (by sseqid + sseq): {len(dedup)}/{len(df)} retained"
+    )
+    return dedup
