@@ -10,8 +10,15 @@ filters:
   min_alignment_coverage: 0.7
 
 motif:
+  # One-based residue positions in the ungapped 16S rRNA sequence.
+  # Each fragment is a pattern string describing consecutive residues.
+  # Syntax: plain char = exact; [ag] = a or g; {a} = anything except a; x = any.
+  # positions:[100,101,102] fragments:["a","g","c"] is identical to
+  # positions:[100] fragments:["agc"].
   positions: [1408, 1409, 1410]
-  residues: ["A", "C", "G"]
+  fragments: ["A", "C", "G"]
+  molecule_type: rna   # protein | dna | rna
+  tolerance: 0         # allow ±tolerance shift around each position
 
 alignment:
   method: mafft

@@ -21,8 +21,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_alignment_coverage": 0.7,
     },
     "motif": {
-        "positions": [1408, 1409, 1410],
-        "residues": ["A", "C", "G"],
+        "positions": [1408, 1409, 1410],  # One-based residue positions (ungapped)
+        "fragments": ["A", "C", "G"],
+        "molecule_type": "rna",
+        "tolerance": 0,
     },
     "alignment": {
         "method": "mafft",
@@ -54,7 +56,18 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
         user_config: dict[str, Any] = yaml.safe_load(fh) or {}
 
     config = _deep_merge(DEFAULT_CONFIG, user_config)
+    _normalise_motif_config(config)
     return config
+
+
+def _normalise_motif_config(config: dict[str, Any]) -> None:
+    """Rename legacy ``motif.residues`` key to ``motif.fragments`` in-place."""
+    motif = config.get("motif", {})
+    if "residues" in motif and "fragments" not in motif:
+        motif["fragments"] = motif.pop("residues")
+    elif "residues" in motif:
+        # Both keys present; drop the legacy one silently
+        motif.pop("residues")
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
