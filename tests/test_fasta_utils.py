@@ -69,23 +69,30 @@ class TestBuildAlignmentFasta:
         records, _ = build_alignment_fasta([REFERENCE_RECORD], df)
         assert len(records) == 2  # ref + 1 unique blast sequence
 
-    def test_blast_seq_identical_to_reference_excluded(self) -> None:
-        """A BLAST sequence identical to the reference must not be appended."""
+    def test_blast_seq_identical_to_reference_not_duplicated_in_fasta(self) -> None:
+        """A BLAST sequence identical to the reference must not be appended as a new record."""
         rows = [
             ("q", "hit1", 100.0, 8, 1e-50, 500.0, "12345", "ACGTACGT"),  # same as ref
         ]
         df = _make_blast_df(rows)
-        records, _ = build_alignment_fasta([REFERENCE_RECORD], df)
-        assert len(records) == 1  # only reference
+        records, metadata = build_alignment_fasta([REFERENCE_RECORD], df)
+        assert len(records) == 1  # only reference, no duplicate
+        # Taxid is linked to index 0 (the reference)
+        assert len(metadata) == 1
+        assert metadata.iloc[0]["seq_index"] == 0
+        assert metadata.iloc[0]["taxid"] == 12345
 
-    def test_blast_seq_with_gaps_identical_to_reference_excluded(self) -> None:
-        """A gapped BLAST sequence that matches the reference after gap removal is excluded."""
+    def test_blast_seq_with_gaps_identical_to_reference_not_duplicated_in_fasta(self) -> None:
+        """A gapped BLAST sequence matching the reference after gap removal is not duplicated."""
         rows = [
             ("q", "hit1", 100.0, 8, 1e-50, 500.0, "12345", "ACGT-ACGT"),  # same as ref with gap
         ]
         df = _make_blast_df(rows)
-        records, _ = build_alignment_fasta([REFERENCE_RECORD], df)
+        records, metadata = build_alignment_fasta([REFERENCE_RECORD], df)
         assert len(records) == 1  # only reference
+        # Taxid is still linked to index 0
+        assert metadata.iloc[0]["seq_index"] == 0
+        assert metadata.iloc[0]["taxid"] == 12345
 
     def test_blast_seq_case_insensitive_dedup(self) -> None:
         """Sequences differing only in case count as duplicates."""
@@ -135,8 +142,8 @@ class TestBuildAlignmentFasta:
         _, metadata = build_alignment_fasta([REFERENCE_RECORD], df)
         assert metadata.iloc[0]["taxid"] == 12345
 
-    def test_metadata_reference_not_included(self) -> None:
-        """Reference (index 0) must not appear in metadata."""
+    def test_metadata_no_ref_index_when_blast_seq_differs(self) -> None:
+        """Index 0 does not appear in metadata when no BLAST hit matches the reference."""
         rows = [
             ("q", "hit1", 95.0, 8, 1e-10, 200.0, "12345", "TTTTGGGG"),
         ]
@@ -175,6 +182,16 @@ class TestBuildAlignmentFasta:
         idx2_taxids = set(metadata[metadata["seq_index"] == 2]["taxid"])
         assert idx1_taxids == {11111}
         assert idx2_taxids == {22222}
+
+    def test_metadata_ref_identical_seq_multi_taxid_linked_to_index_zero(self) -> None:
+        """All taxids from a ref-identical BLAST hit are linked to seq_index=0."""
+        rows = [
+            ("q", "hit1", 100.0, 8, 1e-50, 500.0, "11111;22222", "ACGTACGT"),  # same as ref
+        ]
+        df = _make_blast_df(rows)
+        _, metadata = build_alignment_fasta([REFERENCE_RECORD], df)
+        assert set(metadata["seq_index"]) == {0}
+        assert set(metadata["taxid"]) == {11111, 22222}
 
     def test_metadata_dedup_seq_collects_taxids_from_all_occurrences(self) -> None:
         """A duplicate sequence contributes its taxids to the original seq_index."""

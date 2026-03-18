@@ -106,12 +106,9 @@ def build_alignment_fasta(
     The reference sequence is placed first at local index 0.  Unique
     sequences extracted from *blast_df* (deduplicated by normalised sequence
     content) are appended starting at index 1.  Any BLAST sequence whose
-    content is identical to the reference is silently skipped so the
-    reference is never duplicated.
-
-    A metadata DataFrame is returned alongside the records to allow
-    downstream steps to link each local index back to the organism(s) it
-    was found in.
+    content is identical to the reference is not added as a separate record
+    (so the reference is never duplicated), but its taxids are recorded under
+    index 0 in the metadata.
 
     Parameters
     ----------
@@ -130,9 +127,10 @@ def build_alignment_fasta(
           reference followed by the unique BLAST sequences.
         - Metadata :class:`~pandas.DataFrame` with columns
           ``seq_index`` (int) and ``taxid`` (int), one row per
-          *(sequence, organism)* pair.  The reference (index 0) is excluded
-          from the metadata because it originates from the query rather than
-          from a BLAST hit.
+          *(sequence, organism)* pair.  When a BLAST hit carries a sequence
+          identical to the reference, its taxids are linked to index 0 so
+          that all organisms harbouring the reference sequence are
+          represented in the metadata.
 
     Raises
     ------
@@ -166,12 +164,10 @@ def build_alignment_fasta(
 
         if seq_norm in seen_seqs:
             existing_idx = seen_seqs[seq_norm]
-            if existing_idx == 0:
-                # Sequence is identical to the reference; skip entirely.
-                continue
-            # Same sequence was already stored under *existing_idx*.  Still
-            # collect the taxids from this hit so that all organisms sharing
-            # the sequence are represented in the metadata.
+            # Same sequence was already stored under *existing_idx* (which may
+            # be 0 for the reference).  Still collect the taxids from this hit
+            # so that all organisms sharing the sequence are represented in the
+            # metadata.
             for raw_taxid in str(row["staxids"]).split(";"):
                 raw_taxid = raw_taxid.strip()
                 if raw_taxid and raw_taxid != "N/A":
