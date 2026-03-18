@@ -181,12 +181,16 @@ def detect_motif(
 
     alignment_file = results_dir / "alignment" / "16s_alignment.fasta"
     positions = cfg["motif"]["positions"]
-    residues = cfg["motif"]["residues"]
+    fragments = cfg["motif"]["fragments"]
+    molecule_type = cfg["motif"].get("molecule_type", "rna")
+    tolerance = cfg["motif"].get("tolerance", 0)
 
     results = detect_motif_in_alignment(
         alignment_file=str(alignment_file),
         positions=positions,
-        residues=residues,
+        fragments=fragments,
+        molecule_type=molecule_type,
+        tolerance=tolerance,
     )
 
     out_file = results_dir / "analysis" / "motif_results.tsv"
