@@ -10,6 +10,9 @@ filters:
   min_alignment_coverage: 0.7
 
 motif:
+  # One-based residue positions in the ungapped 16S rRNA sequence.
+  # Each entry in residues is a string of accepted characters at that position
+  # (e.g. "ACG" accepts any of A, C, or G).
   positions: [1408, 1409, 1410]
   residues: ["A", "C", "G"]
 

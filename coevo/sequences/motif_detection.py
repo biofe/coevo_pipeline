@@ -20,19 +20,25 @@ def detect_motif_in_alignment(
 ) -> pd.DataFrame:
     """Detect a nucleotide/amino-acid motif in each sequence of an alignment.
 
-    The motif is defined by a list of alignment column indices (*positions*)
-    and the expected characters at those columns (*residues*).  A sequence is
-    considered to have the motif when ALL specified positions match their
-    expected residues (case-insensitive).
+    The motif is defined by a list of *one-based* positions in the ungapped
+    sequence (*positions*) and the accepted characters at those positions
+    (*residues*).  A sequence is considered to have the motif when ALL
+    specified positions match their expected residues (case-insensitive).
+
+    Gap characters (``-``) introduced by the aligner are transparently skipped
+    so that *positions* always refer to residue numbers in the original,
+    ungapped sequence.
 
     Parameters
     ----------
     alignment_file:
         Path to the aligned FASTA file.
     positions:
-        Zero-based column indices within the alignment to inspect.
+        One-based residue positions in the *ungapped* sequence to inspect.
     residues:
-        Expected character at each position (same order as *positions*).
+        Accepted character(s) at each position (same order as *positions*).
+        A multi-character string means *any one* of those characters is
+        acceptable (e.g. ``"acgt"`` accepts any standard nucleotide).
     n_jobs:
         Number of parallel worker processes.  Use ``1`` to disable
         multiprocessing (useful in tests).
@@ -77,6 +83,36 @@ def detect_motif_in_alignment(
     return df
 
 
+def _ungapped_to_aligned_index(sequence: str, ungapped_idx: int) -> int | None:
+    """Return the aligned index for the n-th (0-based) non-gap character.
+
+    Iterates through *sequence* counting non-``'-'`` characters.  When the
+    *ungapped_idx*-th non-gap character is reached its position in the aligned
+    string is returned.  Returns ``None`` if *ungapped_idx* is beyond the last
+    non-gap character.
+
+    Parameters
+    ----------
+    sequence:
+        Aligned sequence string, potentially containing ``-`` gap characters.
+    ungapped_idx:
+        Zero-based index in the ungapped (gap-stripped) sequence.
+
+    Returns
+    -------
+    int or None
+        Position in the aligned sequence, or ``None`` if *ungapped_idx* is
+        beyond the last non-gap character.
+    """
+    count = 0
+    for i, ch in enumerate(sequence):
+        if ch != "-":
+            if count == ungapped_idx:
+                return i
+            count += 1
+    return None
+
+
 def _check_motif(
     seq_id: str,
     sequence: str,
@@ -90,21 +126,27 @@ def _check_motif(
     seq_id:
         Identifier of the sequence.
     sequence:
-        Full aligned sequence string (may contain gap characters).
+        Full aligned sequence string (may contain ``-`` gap characters).
     positions:
-        Alignment column indices to inspect.
+        One-based residue positions in the *ungapped* sequence to inspect.
+        Gap characters are skipped automatically so these positions refer
+        to the original biological sequence numbering.
     residues:
-        Expected characters at each position.
+        Accepted character(s) at each position.  A multi-character string
+        means *any one* of those characters is acceptable (case-insensitive).
 
     Returns
     -------
     dict
         ``{"sequence_id": str, "motif_present": bool}``
     """
-    motif_present = all(
-        pos < len(sequence) and sequence[pos].upper() == res.upper()
-        for pos, res in zip(positions, residues)
-    )
+    motif_present = True
+    for pos, res in zip(positions, residues):
+        ungapped_idx = pos - 1  # convert 1-based to 0-based
+        aligned_idx = _ungapped_to_aligned_index(sequence, ungapped_idx)
+        if aligned_idx is None or sequence[aligned_idx].upper() not in res.upper():
+            motif_present = False
+            break
     return {"sequence_id": seq_id, "motif_present": motif_present}
 
 

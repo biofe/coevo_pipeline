@@ -21,7 +21,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_alignment_coverage": 0.7,
     },
     "motif": {
-        "positions": [1408, 1409, 1410],
+        "positions": [1408, 1409, 1410],  # One-based residue positions (ungapped)
         "residues": ["A", "C", "G"],
     },
     "alignment": {
