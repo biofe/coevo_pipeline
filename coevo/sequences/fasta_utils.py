@@ -152,7 +152,10 @@ def build_alignment_fasta(
         SeqRecord(ref.seq, id=ref.id, description=ref.description)
     ]
     metadata_rows: list[dict] = []
-    seen_seqs: set[str] = {ref_seq_norm}
+    # Maps normalised sequence → its assigned local index so that when the
+    # same sequence appears in multiple BLAST hits (different organisms) the
+    # taxids from every hit are all linked to the single stored sequence.
+    seen_seqs: dict[str, int] = {ref_seq_norm: 0}
     seq_idx = 1
 
     for _, row in blast_df.iterrows():
@@ -160,10 +163,25 @@ def build_alignment_fasta(
         # include gap characters.  Strip gaps before storing so that the output
         # FASTA contains raw (un-gapped) sequences suitable for re-alignment.
         seq_norm = str(row["sseq"]).replace("-", "").upper()
-        if seq_norm in seen_seqs:
-            continue
-        seen_seqs.add(seq_norm)
 
+        if seq_norm in seen_seqs:
+            existing_idx = seen_seqs[seq_norm]
+            if existing_idx == 0:
+                # Sequence is identical to the reference; skip entirely.
+                continue
+            # Same sequence was already stored under *existing_idx*.  Still
+            # collect the taxids from this hit so that all organisms sharing
+            # the sequence are represented in the metadata.
+            for raw_taxid in str(row["staxids"]).split(";"):
+                raw_taxid = raw_taxid.strip()
+                if raw_taxid and raw_taxid != "N/A":
+                    try:
+                        metadata_rows.append({"seq_index": existing_idx, "taxid": int(raw_taxid)})
+                    except ValueError:
+                        logger.warning(f"Could not parse taxid: {raw_taxid!r}")
+            continue
+
+        seen_seqs[seq_norm] = seq_idx
         records.append(SeqRecord(Seq(seq_norm), id=str(row["sseqid"]), description=""))
 
         for raw_taxid in str(row["staxids"]).split(";"):
@@ -176,7 +194,11 @@ def build_alignment_fasta(
 
         seq_idx += 1
 
-    metadata_df = pd.DataFrame(metadata_rows, columns=["seq_index", "taxid"])
+    metadata_df = (
+        pd.DataFrame(metadata_rows, columns=["seq_index", "taxid"])
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
     logger.info(
         f"Built alignment FASTA: 1 reference + {seq_idx - 1} unique blast sequences"
     )

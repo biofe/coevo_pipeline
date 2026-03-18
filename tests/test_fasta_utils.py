@@ -176,17 +176,32 @@ class TestBuildAlignmentFasta:
         assert idx1_taxids == {11111}
         assert idx2_taxids == {22222}
 
-    def test_metadata_dedup_seq_shares_index_with_first_occurrence(self) -> None:
-        """When a duplicate seq is skipped, its taxids are not added either."""
+    def test_metadata_dedup_seq_collects_taxids_from_all_occurrences(self) -> None:
+        """A duplicate sequence contributes its taxids to the original seq_index."""
         rows = [
             ("q", "hit1", 95.0, 8, 1e-10, 200.0, "11111", "TTTTGGGG"),
-            ("q", "hit2", 90.0, 8, 1e-9, 180.0, "22222", "TTTTGGGG"),  # dup seq
+            ("q", "hit2", 90.0, 8, 1e-9, 180.0, "22222", "TTTTGGGG"),  # dup seq, different taxid
+        ]
+        df = _make_blast_df(rows)
+        records, metadata = build_alignment_fasta([REFERENCE_RECORD], df)
+        # Only one unique sequence stored (ref + 1 blast)
+        assert len(records) == 2
+        # Both taxids are linked to the same seq_index=1
+        assert len(metadata) == 2
+        assert set(metadata["taxid"]) == {11111, 22222}
+        assert all(metadata["seq_index"] == 1)
+
+    def test_metadata_dedup_taxids_deduplicated(self) -> None:
+        """Identical (seq_index, taxid) pairs from repeated hits are deduplicated."""
+        rows = [
+            ("q", "hit1", 95.0, 8, 1e-10, 200.0, "11111", "TTTTGGGG"),
+            ("q", "hit2", 90.0, 8, 1e-9, 180.0, "11111", "TTTTGGGG"),  # same seq, same taxid
         ]
         df = _make_blast_df(rows)
         _, metadata = build_alignment_fasta([REFERENCE_RECORD], df)
-        # Only one metadata entry: hit2 was skipped as duplicate
         assert len(metadata) == 1
         assert metadata.iloc[0]["taxid"] == 11111
+        assert metadata.iloc[0]["seq_index"] == 1
 
     # ------------------------------------------------------------------
     # Error handling
