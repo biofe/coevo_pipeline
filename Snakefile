@@ -5,7 +5,7 @@ Steps:
     1. BLAST protein search
     2. BLAST 16S rRNA search
     3. Parse hits & extract taxids
-    4. Retrieve 16S sequences (placeholder – relies on external fetch step)
+    4. Build alignment input FASTA (reference + unique 16S hits) and metadata
     5. Align 16S sequences with MAFFT
     6. Motif detection
     7. Co-occurrence analysis

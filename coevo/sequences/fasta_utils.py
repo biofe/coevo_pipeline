@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Generator
 
+import pandas as pd
 from Bio import SeqIO
+from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from loguru import logger
 
@@ -93,3 +95,89 @@ def filter_fasta_by_ids(
     selected = [rec for rec in iter_fasta(file_path) if rec.id in ids]
     logger.info(f"Filtered FASTA: retained {len(selected)}/{len(ids)} requested IDs")
     return selected
+
+
+def build_alignment_fasta(
+    reference_records: list[SeqRecord],
+    blast_df: pd.DataFrame,
+) -> tuple[list[SeqRecord], pd.DataFrame]:
+    """Build alignment input FASTA from a reference sequence and BLAST hits.
+
+    The reference sequence is placed first at local index 0.  Unique
+    sequences extracted from *blast_df* (deduplicated by normalised sequence
+    content) are appended starting at index 1.  Any BLAST sequence whose
+    content is identical to the reference is silently skipped so the
+    reference is never duplicated.
+
+    A metadata DataFrame is returned alongside the records to allow
+    downstream steps to link each local index back to the organism(s) it
+    was found in.
+
+    Parameters
+    ----------
+    reference_records:
+        Sequence records from the reference FASTA file.  Only the **first**
+        record is used (local index 0).
+    blast_df:
+        DataFrame returned by
+        :func:`~coevo.blast.blast_parser.parse_blast_tabular`.  Must contain
+        the ``sseq`` and ``staxids`` columns.
+
+    Returns
+    -------
+    tuple[list[SeqRecord], pandas.DataFrame]
+        - Ordered list of :class:`~Bio.SeqRecord.SeqRecord` objects: the
+          reference followed by the unique BLAST sequences.
+        - Metadata :class:`~pandas.DataFrame` with columns
+          ``seq_index`` (int) and ``taxid`` (int), one row per
+          *(sequence, organism)* pair.  The reference (index 0) is excluded
+          from the metadata because it originates from the query rather than
+          from a BLAST hit.
+
+    Raises
+    ------
+    ValueError
+        If *reference_records* is empty.
+    """
+    if not reference_records:
+        raise ValueError("reference_records must not be empty")
+
+    ref = reference_records[0]
+    # Normalise the reference sequence the same way as BLAST hits so that a
+    # BLAST result identical to the reference (modulo case and gap characters)
+    # is correctly identified as a duplicate.
+    ref_seq_norm = str(ref.seq).replace("-", "").upper()
+
+    records: list[SeqRecord] = [
+        SeqRecord(ref.seq, id=ref.id, description=ref.description)
+    ]
+    metadata_rows: list[dict] = []
+    seen_seqs: set[str] = {ref_seq_norm}
+    seq_idx = 1
+
+    for _, row in blast_df.iterrows():
+        # BLAST's sseq column contains the aligned subject sequence, which may
+        # include gap characters.  Strip gaps before storing so that the output
+        # FASTA contains raw (un-gapped) sequences suitable for re-alignment.
+        seq_norm = str(row["sseq"]).replace("-", "").upper()
+        if seq_norm in seen_seqs:
+            continue
+        seen_seqs.add(seq_norm)
+
+        records.append(SeqRecord(Seq(seq_norm), id=str(row["sseqid"]), description=""))
+
+        for raw_taxid in str(row["staxids"]).split(";"):
+            raw_taxid = raw_taxid.strip()
+            if raw_taxid and raw_taxid != "N/A":
+                try:
+                    metadata_rows.append({"seq_index": seq_idx, "taxid": int(raw_taxid)})
+                except ValueError:
+                    logger.warning(f"Could not parse taxid: {raw_taxid!r}")
+
+        seq_idx += 1
+
+    metadata_df = pd.DataFrame(metadata_rows, columns=["seq_index", "taxid"])
+    logger.info(
+        f"Built alignment FASTA: 1 reference + {seq_idx - 1} unique blast sequences"
+    )
+    return records, metadata_df
