@@ -104,6 +104,50 @@ def extract_taxa(
         logger.info(f"Wrote {len(taxids)} {name} taxids to {out_file}")
 
 
+@app.command("prepare-alignment")
+def prepare_alignment(
+    query: str = typer.Argument(
+        ..., help="Path to reference 16S rRNA FASTA (used as blast-16s input)"
+    ),
+    config_path: str = CONFIG_OPTION,
+    log_level: str = LOG_LEVEL_OPTION,
+) -> None:
+    """Build alignment input FASTA and sequence metadata from BLAST results.
+
+    Reads the BLAST 16S hits produced by the ``blast-16s`` step, deduplicates
+    subject sequences, and assembles an input FASTA that begins with the
+    reference sequence followed by all unique BLAST hits.  A metadata TSV
+    mapping each local sequence index to its organism (taxid) is written
+    alongside the FASTA.
+    """
+    cfg = _load(config_path, log_level)
+    results_dir = get_results_dir(cfg)
+
+    from coevo.blast.blast_parser import parse_blast_tabular, filter_blast_hits
+    from coevo.sequences.fasta_utils import read_fasta, write_fasta, build_alignment_fasta
+    from coevo.io.result_writer import write_dataframe
+
+    blast_file = results_dir / "blast" / "rna_hits.tsv"
+    alignment_dir = results_dir / "alignment"
+    alignment_dir.mkdir(parents=True, exist_ok=True)
+
+    reference_records = read_fasta(query)
+    blast_df = parse_blast_tabular(blast_file)
+
+    min_identity = cfg.get("filters", {}).get("min_identity", 0.0)
+    blast_df = filter_blast_hits(blast_df, min_identity=min_identity)
+
+    records, metadata = build_alignment_fasta(reference_records, blast_df)
+
+    output_fasta = alignment_dir / "16s_input.fasta"
+    write_fasta(records, output_fasta)
+    logger.info(f"Alignment input FASTA written to {output_fasta}")
+
+    metadata_file = alignment_dir / "16s_metadata.tsv"
+    write_dataframe(metadata, metadata_file)
+    logger.info(f"Sequence metadata written to {metadata_file}")
+
+
 @app.command("align-16s")
 def align_16s(
     input_fasta: str = typer.Argument(..., help="Path to 16S rRNA FASTA to align"),
@@ -194,11 +238,16 @@ def run_all(
     log_level: str = LOG_LEVEL_OPTION,
 ) -> None:
     """Run the full pipeline end-to-end."""
+    cfg = _load(config_path, log_level)
+    results_dir = get_results_dir(cfg)
+
     logger.info("Starting full pipeline run")
     blast_protein(query=protein_query, config_path=config_path, log_level=log_level)
     blast_16s(query=rna_query, config_path=config_path, log_level=log_level)
     extract_taxa(config_path=config_path, log_level=log_level)
-    align_16s(input_fasta=rna_query, config_path=config_path, log_level=log_level)
+    prepare_alignment(query=rna_query, config_path=config_path, log_level=log_level)
+    prepared_fasta = str(results_dir / "alignment" / "16s_input.fasta")
+    align_16s(input_fasta=prepared_fasta, config_path=config_path, log_level=log_level)
     detect_motif(config_path=config_path, log_level=log_level)
     analyse(config_path=config_path, log_level=log_level)
     logger.info("Full pipeline run complete")

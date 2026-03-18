@@ -147,8 +147,12 @@ coevo blast-16s examples/small_16s.fasta --config config.yaml
 # Extract taxids from BLAST results
 coevo extract-taxa --config config.yaml
 
+# Build alignment input FASTA and sequence metadata from BLAST results
+# (reference sequence first, then all unique 16S hits; writes 16s_input.fasta and 16s_metadata.tsv)
+coevo prepare-alignment examples/small_16s.fasta --config config.yaml
+
 # Align 16S rRNA sequences with MAFFT
-coevo align-16s examples/small_16s.fasta --config config.yaml
+coevo align-16s results/alignment/16s_input.fasta --config config.yaml
 
 # Detect the structural motif in the alignment
 coevo detect-motif --config config.yaml
@@ -191,6 +195,8 @@ results/
 │   ├── protein_taxa.txt        # One taxid per line
 │   └── rna_taxa.txt
 ├── alignment/
+│   ├── 16s_input.fasta         # Reference + unique 16S sequences (alignment input)
+│   ├── 16s_metadata.tsv        # seq_index → taxid mapping for each 16S sequence
 │   └── 16s_alignment.fasta     # MAFFT-aligned 16S sequences
 └── analysis/
     ├── motif_results.tsv       # Per-sequence motif presence/absence
