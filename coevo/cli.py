@@ -234,6 +234,88 @@ def analyse(
     logger.info(f"Phylum summary written to {analysis_dir / 'phylum_summary.tsv'}")
 
 
+@app.command("draw-tree")
+def draw_tree(
+    config_path: str = CONFIG_OPTION,
+    log_level: str = LOG_LEVEL_OPTION,
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help=(
+            "Path to save the rendered tree image (PNG or SVG). "
+            "If omitted the tree is displayed interactively (requires a graphical display)."
+        ),
+    ),
+    max_nodes: int = typer.Option(200, "--max-nodes", help="Maximum number of visible leaf nodes."),
+    collapse_threshold: float = typer.Option(
+        0.9,
+        "--collapse-threshold",
+        help="Fraction of children sharing a category required to collapse a node (0–1).",
+    ),
+) -> None:
+    """Draw a circular phylogenetic tree from BLAST taxonomy results.
+
+    Reads ``protein_taxa.txt`` and ``rna_taxa.txt`` produced by the
+    ``extract-taxa`` step.  When ``motif_results.tsv`` and
+    ``16s_metadata.tsv`` are present, leaf nodes of organisms that carry the
+    16S motif are highlighted with a gold background.
+
+    Requires the optional ``ete4`` package::
+
+        pip install ete4
+    """
+    cfg = _load(config_path, log_level)
+    results_dir = get_results_dir(cfg)
+
+    from coevo.taxonomy.taxid_utils import read_taxids
+    from coevo.analysis.phylogeny import draw_circular_tree
+
+    taxa_dir = results_dir / "taxa"
+    protein_taxa = read_taxids(taxa_dir / "protein_taxa.txt")
+    rna_taxa = read_taxids(taxa_dir / "rna_taxa.txt")
+
+    # Optionally load motif taxids from motif results + alignment metadata
+    motif_taxids: set[int] | None = None
+    motif_file = results_dir / "analysis" / "motif_results.tsv"
+    metadata_file = results_dir / "alignment" / "16s_metadata.tsv"
+    if motif_file.exists() and metadata_file.exists():
+        import pandas as pd
+
+        motif_df = pd.read_csv(motif_file, sep="\t")
+        metadata_df = pd.read_csv(metadata_file, sep="\t")
+        # sequence_id in motif_results is "seq_N"; extract integer N to match
+        # the seq_index column in the metadata table.
+        motif_seq_ids = motif_df.loc[motif_df["motif_present"], "sequence_id"]
+        motif_seq_indices: set[int] = set()
+        for sid in motif_seq_ids:
+            try:
+                motif_seq_indices.add(int(str(sid).removeprefix("seq_")))
+            except ValueError:
+                logger.warning(f"Could not parse seq_index from sequence_id {sid!r}")
+        motif_taxids = set(
+            metadata_df.loc[
+                metadata_df["seq_index"].isin(motif_seq_indices), "taxid"
+            ]
+        )
+        logger.info(f"Loaded {len(motif_taxids)} motif taxids")
+    else:
+        logger.info("Motif results or metadata not found; proceeding without motif highlights")
+
+    draw_circular_tree(
+        protein_taxids=protein_taxa,
+        rna_taxids=rna_taxa,
+        motif_taxids=motif_taxids,
+        output_file=output,
+        max_nodes=max_nodes,
+        collapse_threshold=collapse_threshold,
+    )
+    if output:
+        logger.info(f"Phylogenetic tree saved to {output}")
+    else:
+        logger.info("Phylogenetic tree displayed interactively")
+
+
 @app.command("run-all")
 def run_all(
     protein_query: str = typer.Argument(..., help="Path to protein query FASTA"),
