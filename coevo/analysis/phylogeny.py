@@ -264,12 +264,9 @@ def draw_circular_tree(
 
     for node in tree.traverse():
         taxid = int(node.name) if node.name.isdigit() else None
-        node.add_feature("taxid", taxid)
-        node.add_feature(
-            "sci_name",
-            sci_names.get(taxid, node.name) if taxid else node.name,
-        )
-        node.add_feature("category", categories.get(taxid) if taxid else None)
+        node.taxid = taxid
+        node.sci_name = sci_names.get(taxid, node.name) if taxid else node.name
+        node.category = categories.get(taxid) if taxid else None
 
     # Collapse subtrees where children share a dominant category
     _collapse_by_category(tree, threshold=collapse_threshold)
@@ -383,7 +380,7 @@ def _collapse_by_category(tree: Any, threshold: float = 0.9) -> None:
         ]
         dominant = _dominant_category(child_cats, threshold=threshold)
         if dominant is not None:
-            node.add_feature("category", dominant)
+            node.category = dominant
             for child in list(node.children):
                 child.detach()
 
@@ -426,6 +423,6 @@ def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
             if getattr(sib, "category", None) is not None
         ]
         dominant = _dominant_category(sib_cats, threshold=0.0) or CATEGORY_BOTH
-        parent.add_feature("category", dominant)
+        parent.category = dominant
         for child in list(parent.children):
             child.detach()
