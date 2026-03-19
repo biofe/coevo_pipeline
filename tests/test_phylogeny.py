@@ -379,7 +379,7 @@ class TestCollapseByCategory:
         )
         _collapse_by_category(parent, threshold=0.9)
         # All children detached -> parent is now a leaf
-        assert parent.is_leaf()
+        assert parent.is_leaf
         assert parent.category == CATEGORY_PROTEIN_ONLY
 
     def test_no_collapse_when_mixed(self) -> None:
@@ -396,7 +396,7 @@ class TestCollapseByCategory:
         )
         _collapse_by_category(parent, threshold=0.9)
         # 3/5 = 60% RNA_ONLY, 2/5 = 40% PROTEIN_ONLY -> no collapse
-        assert not parent.is_leaf()
+        assert not parent.is_leaf
 
     def test_custom_threshold(self) -> None:
         """Threshold of 0.5 should collapse when one category has > 50%."""
@@ -410,7 +410,7 @@ class TestCollapseByCategory:
         )
         _collapse_by_category(parent, threshold=0.5)
         # 2/3 ≈ 0.67 >= 0.5 -> collapse
-        assert parent.is_leaf()
+        assert parent.is_leaf
         assert parent.category == CATEGORY_RNA_ONLY
 
 
@@ -491,7 +491,7 @@ def _make_node_with_children(
     Returns
     -------
     MagicMock
-        A mock parent node whose ``.children``, ``.is_leaf()``,
+        A mock parent node whose ``.children``, ``.is_leaf``,
         ``.traverse()``, and ``.add_feature()`` behave realistically.
     """
 
@@ -502,11 +502,12 @@ def _make_node_with_children(
             self.children: list[SimpleNode] = []
             self.up: SimpleNode | None = None
 
+        @property
         def is_leaf(self) -> bool:
             return len(self.children) == 0
 
         def iter_leaves(self):  # type: ignore[override]
-            if self.is_leaf():
+            if self.is_leaf:
                 yield self
             else:
                 for child in self.children:
@@ -549,11 +550,12 @@ def _make_simple_tree(n_leaves: int) -> MagicMock:
             self.children: list[SimpleNode] = []
             self.up: SimpleNode | None = None
 
+        @property
         def is_leaf(self) -> bool:
             return len(self.children) == 0
 
         def iter_leaves(self):  # type: ignore[override]
-            if self.is_leaf():
+            if self.is_leaf:
                 yield self
             else:
                 for child in self.children:
@@ -574,7 +576,7 @@ def _make_simple_tree(n_leaves: int) -> MagicMock:
 
         def get_distance(self, other: object, topology_only: bool = False) -> float:
             # Simple two-level tree: leaves have depth 1
-            return 1.0 if self.is_leaf() else 0.0
+            return 1.0 if self.is_leaf else 0.0
 
     root = SimpleNode("root")
     for i in range(n_leaves):
@@ -599,11 +601,12 @@ def _make_get_leaves_tree(n_leaves: int) -> Any:
             self.children: list[PhyloNode] = []
             self.up: PhyloNode | None = None
 
+        @property
         def is_leaf(self) -> bool:
             return len(self.children) == 0
 
         def get_leaves(self) -> list[PhyloNode]:
-            if self.is_leaf():
+            if self.is_leaf:
                 return [self]
             result: list[PhyloNode] = []
             for child in self.children:
@@ -625,7 +628,7 @@ def _make_get_leaves_tree(n_leaves: int) -> Any:
 
         def get_distance(self, other: object, topology_only: bool = False) -> float:
             # Simple two-level tree: leaves have depth 1
-            return 1.0 if self.is_leaf() else 0.0
+            return 1.0 if self.is_leaf else 0.0
 
     root = PhyloNode("root")
     for i in range(n_leaves):

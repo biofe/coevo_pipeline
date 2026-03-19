@@ -329,7 +329,7 @@ def _get_leaves(node: Any) -> list[Any]:
 
     Tries ``get_leaves()`` first (available on ``PhyloTree`` and modern ete4
     trees), then falls back to iterating via ``traverse()`` filtered by
-    ``is_leaf()``.
+    ``is_leaf``.
 
     Parameters
     ----------
@@ -338,7 +338,7 @@ def _get_leaves(node: Any) -> list[Any]:
     """
     if hasattr(node, "get_leaves"):
         return node.get_leaves()
-    return [n for n in node.traverse() if n.is_leaf()]
+    return [n for n in node.traverse() if n.is_leaf]
 
 
 def _dominant_category(
