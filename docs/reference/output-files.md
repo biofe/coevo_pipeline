@@ -84,6 +84,17 @@ FASTA file containing:
 1. The reference 16S rRNA sequence (from the query FASTA passed to `blast-16s`).
 2. All unique subject sequences from `rna_hits.tsv` that pass the identity filter.
 
+Sequence headers follow the enumeration-based naming convention
+``seq_{index}``, where the index matches the ``seq_index`` column in
+``16s_metadata.tsv``:
+
+- ``seq_0`` — the reference sequence (index 0).
+- ``seq_1``, ``seq_2``, … — unique BLAST hit sequences in encounter order.
+
+This naming is preserved through MAFFT alignment into ``16s_alignment.fasta``
+and is used as the ``sequence_id`` in ``motif_results.tsv``, enabling
+unambiguous cross-referencing across all pipeline output files.
+
 Used as input to MAFFT.
 
 ---
@@ -97,7 +108,10 @@ Used as input to MAFFT.
 | `seq_index` | Local integer index (0-based) in `16s_input.fasta` |
 | `taxid` | NCBI taxid of the sequence |
 
-Maps each sequence in the alignment FASTA to its organism.
+Maps each sequence in the alignment FASTA to its organism.  The ``seq_index``
+value corresponds directly to the numeric part of the sequence identifier in
+``16s_input.fasta`` and ``16s_alignment.fasta`` (e.g. ``seq_index = 1``
+→ header ``>seq_1``).
 
 ---
 
@@ -105,7 +119,7 @@ Maps each sequence in the alignment FASTA to its organism.
 
 **Produced by:** `coevo align-16s` / `rule align_16s`
 
-MAFFT multiple-sequence alignment of all sequences in `16s_input.fasta`.  Gap characters (`-`) are inserted to produce a common coordinate system.
+MAFFT multiple-sequence alignment of all sequences in `16s_input.fasta`.  Gap characters (`-`) are inserted to produce a common coordinate system.  Sequence headers (``seq_0``, ``seq_1``, …) are inherited unchanged from ``16s_input.fasta`` and can be looked up in ``16s_metadata.tsv`` via the ``seq_index`` column.
 
 ---
 
@@ -115,11 +129,12 @@ MAFFT multiple-sequence alignment of all sequences in `16s_input.fasta`.  Gap ch
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `seq_id` | string | Sequence identifier from the alignment FASTA |
-| `taxid` | integer | NCBI taxid |
+| `sequence_id` | string | Enumeration-based sequence identifier from the alignment FASTA (e.g. `seq_0`, `seq_1`) |
 | `motif_present` | bool | `True` if the motif was found |
-| `matched_fragment` | string | Actual residues at the matched positions (empty if no match) |
-| `position` | integer | Ungapped position where the match was found |
+
+The ``sequence_id`` values match the FASTA headers in ``16s_alignment.fasta``
+and can be joined to ``16s_metadata.tsv`` via the numeric part of the identifier
+(``seq_index``).
 
 ---
 

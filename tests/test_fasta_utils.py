@@ -38,7 +38,7 @@ class TestBuildAlignmentFasta:
     def test_reference_is_first_entry(self) -> None:
         df = pd.DataFrame(columns=BLAST_COLUMNS)
         records, _ = build_alignment_fasta([REFERENCE_RECORD], df)
-        assert records[0].id == "ref1"
+        assert records[0].id == "seq_0"
 
     def test_reference_sequence_preserved(self) -> None:
         df = pd.DataFrame(columns=BLAST_COLUMNS)
@@ -113,6 +113,18 @@ class TestBuildAlignmentFasta:
         df = _make_blast_df(rows)
         records, _ = build_alignment_fasta([REFERENCE_RECORD], df)
         assert len(records) == 2  # ref + 1 unique
+
+    def test_blast_sequence_ids_use_enumeration(self) -> None:
+        """BLAST sequences are assigned enumeration-based IDs (seq_1, seq_2, …)."""
+        rows = [
+            ("q", "hit1", 95.0, 8, 1e-10, 200.0, "11111", "TTTTGGGG"),
+            ("q", "hit2", 90.0, 8, 1e-9, 180.0, "22222", "CCCCAAAA"),
+        ]
+        df = _make_blast_df(rows)
+        records, _ = build_alignment_fasta([REFERENCE_RECORD], df)
+        assert records[0].id == "seq_0"
+        assert records[1].id == "seq_1"
+        assert records[2].id == "seq_2"
 
     # ------------------------------------------------------------------
     # Metadata tests
