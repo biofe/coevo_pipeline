@@ -117,15 +117,27 @@ filters:
   min_alignment_coverage: 0.7
 
 motif:
+  # One-based residue positions in the ungapped 16S rRNA sequence.
+  # Each fragment is a pattern string describing consecutive residues.
+  # Syntax: plain char = exact; [ag] = a or g; {a} = anything except a; x = any.
   positions: [1408, 1409, 1410]
-  residues: ["A", "C", "G"]
+  fragments: ["A", "C", "G"]
+  molecule_type: rna   # protein | dna | rna
+  tolerance: 0         # allow ±tolerance shift around each position
 
 alignment:
   method: mafft
 
 output:
   results_dir: results
+
+conda_env: environment.yml
 ```
+
+Key motif configuration notes:
+- Use `motif.fragments` (not `motif.residues`) to specify the residue pattern at each position.
+- `motif.tolerance` allows ±N position shift when matching (default: 0 = exact positions).
+- `motif.molecule_type` controls sequence alphabet normalisation (`rna`, `dna`, or `protein`).
 
 See `examples/example_config.yaml` for a fully annotated example.
 
@@ -219,6 +231,24 @@ make test-cov
 # Specific test module
 pytest tests/test_blast_parser.py -v
 ```
+
+---
+
+## Pipeline Map
+
+The pipeline is implemented as both a **Snakemake workflow** and a **Typer CLI** (`coevo`).
+
+| Step | What it does | Snakemake rule | CLI command | Output |
+|------|-------------|----------------|-------------|--------|
+| 1 | BLASTP — find protein homologs | `blast_protein` ([rules_blast.smk](workflows/rules_blast.smk)) | `coevo blast-protein` | `results/blast/protein_hits.tsv` |
+| 2 | BLASTN — find 16S rRNA hits | `blast_16s` ([rules_blast.smk](workflows/rules_blast.smk)) | `coevo blast-16s` | `results/blast/rna_hits.tsv` |
+| 3 | Parse hits & extract taxids | `extract_taxa` ([rules_blast.smk](workflows/rules_blast.smk)) | `coevo extract-taxa` | `results/taxa/protein_taxa.txt`, `results/taxa/rna_taxa.txt` |
+| 4 | Build alignment input FASTA + metadata | `prepare_alignment` ([rules_alignment.smk](workflows/rules_alignment.smk)) | `coevo prepare-alignment` | `results/alignment/16s_input.fasta`, `results/alignment/16s_metadata.tsv` |
+| 5 | Align sequences (MAFFT) | `align_16s` ([rules_alignment.smk](workflows/rules_alignment.smk)) | `coevo align-16s` | `results/alignment/16s_alignment.fasta` |
+| 6 | Detect structural motif | `detect_motif` ([rules_alignment.smk](workflows/rules_alignment.smk)) | `coevo detect-motif` | `results/analysis/motif_results.tsv` |
+| 7–8 | Co-occurrence + summary statistics | `analyse` ([rules_analysis.smk](workflows/rules_analysis.smk)) | `coevo analyse` | `results/analysis/cooccurrence.tsv`, `results/analysis/phylum_summary.tsv` |
+
+Full documentation (Tutorials, How-to Guides, Reference, Explanation) is available in [`docs/`](docs/) and published via GitHub Pages.
 
 ---
 

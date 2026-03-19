@@ -1,0 +1,82 @@
+site_name: coevo_rnase_16s
+site_description: >-
+  A modular, reproducible pipeline to investigate co-occurrence of a protein
+  family and a structural motif in bacterial 16S rRNA sequences.
+site_author: biofe
+site_url: https://biofe.github.io/coevo_pipeline/
+repo_url: https://github.com/biofe/coevo_pipeline
+repo_name: biofe/coevo_pipeline
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - Run the pipeline end-to-end: tutorials/end-to-end.md
+  - How-to Guides:
+      - Run only the BLAST steps: how-to/blast-only.md
+      - Change motif definition: how-to/motif-config.md
+      - Use a different BLAST database: how-to/blast-db.md
+      - Run on HPC (Slurm): how-to/hpc-slurm.md
+      - Interpret motif/co-occurrence outputs: how-to/interpret-outputs.md
+  - Reference:
+      - CLI reference: reference/cli.md
+      - Config reference: reference/config.md
+      - Output files: reference/output-files.md
+      - Snakemake rules: reference/snakemake.md
+  - Explanation:
+      - 16S rRNA & phylogenetics context: explanation/16s-context.md
+      - Co-occurrence & Jaccard index: explanation/cooccurrence.md
+      - Fisher's exact test: explanation/fisher-test.md
+      - Caveats & assumptions: explanation/caveats.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/biofe/coevo_pipeline
