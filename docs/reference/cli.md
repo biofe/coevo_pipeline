@@ -135,6 +135,38 @@ Reads `protein_taxa.txt` and `rna_taxa.txt`, computes Jaccard co-occurrence and 
 
 ---
 
+## `coevo draw-tree`
+
+Draw a circular phylogenetic tree from the BLAST taxonomy results.
+
+```
+coevo draw-tree [OPTIONS]
+```
+
+Reads `protein_taxa.txt` and `rna_taxa.txt` produced by the `extract-taxa` step.
+When `motif_results.tsv` and `16s_metadata.tsv` are available, leaf nodes for
+organisms carrying the 16S motif are highlighted with a gold background.
+
+> **Requires** the optional `ete4` package: `pip install ete4`
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--output` / `-o` | no | — | Path to save the tree image (PNG or SVG). If omitted, the tree is shown interactively. |
+| `--max-nodes` | no | `200` | Maximum number of visible leaf nodes after collapsing. |
+| `--collapse-threshold` | no | `0.9` | Fraction of children sharing a category required to collapse a node (0–1). |
+| `--config` | no | `config.yaml` | Path to config.yaml. |
+
+**Inputs (from results directory):**
+
+- `{results_dir}/taxa/protein_taxa.txt`
+- `{results_dir}/taxa/rna_taxa.txt`
+- `{results_dir}/analysis/motif_results.tsv` *(optional – enables motif highlights)*
+- `{results_dir}/alignment/16s_metadata.tsv` *(optional – required alongside motif_results.tsv)*
+
+**Output:** rendered image file (when `--output` is provided), or an interactive window.
+
+---
+
 ## `coevo run-all`
 
 Run the full pipeline end-to-end.

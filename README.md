@@ -172,6 +172,9 @@ coevo detect-motif --config config.yaml
 # Compute co-occurrence statistics
 coevo analyse --config config.yaml
 
+# Draw a circular phylogenetic tree (requires ete4)
+coevo draw-tree --output results/tree.png --config config.yaml
+
 # Run everything end-to-end
 coevo run-all examples/protein_query.fasta examples/small_16s.fasta
 ```
