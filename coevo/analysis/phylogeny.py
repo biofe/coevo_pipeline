@@ -290,7 +290,7 @@ def draw_circular_tree(
             nstyle["size"] = 4
         node.set_style(nstyle)
 
-        if node.is_leaf():
+        if node.is_leaf:
             label_bg = "#FFD700" if (taxid and taxid in motif_taxids) else None
             tf = TextFace(sci_name, fsize=9)
             if label_bg:
@@ -371,7 +371,7 @@ def _collapse_by_category(tree: Any, threshold: float = 0.9) -> None:
         Fraction of direct children required to collapse.  Default 0.9.
     """
     for node in list(tree.traverse("postorder")):
-        if node.is_leaf():
+        if node.is_leaf:
             continue
         child_cats = [
             getattr(child, "category", None)
