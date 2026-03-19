@@ -103,12 +103,18 @@ def build_alignment_fasta(
 ) -> tuple[list[SeqRecord], pd.DataFrame]:
     """Build alignment input FASTA from a reference sequence and BLAST hits.
 
-    The reference sequence is placed first at local index 0.  Unique
-    sequences extracted from *blast_df* (deduplicated by normalised sequence
-    content) are appended starting at index 1.  Any BLAST sequence whose
-    content is identical to the reference is not added as a separate record
-    (so the reference is never duplicated), but its taxids are recorded under
-    index 0 in the metadata.
+    The reference sequence is placed first at local index 0 and assigned the
+    identifier ``seq_0``.  Unique sequences extracted from *blast_df*
+    (deduplicated by normalised sequence content) are appended starting at
+    index 1 with identifiers ``seq_1``, ``seq_2``, and so on.  Any BLAST
+    sequence whose content is identical to the reference is not added as a
+    separate record (so the reference is never duplicated), but its taxids are
+    recorded under index 0 in the metadata.
+
+    This enumeration-based naming (``seq_{index}``) is consistent with the
+    ``seq_index`` column in the metadata TSV and allows unambiguous
+    cross-referencing between ``16s_input.fasta``, ``16s_alignment.fasta``,
+    ``16s_metadata.tsv``, and ``motif_results.tsv``.
 
     Parameters
     ----------
@@ -147,7 +153,7 @@ def build_alignment_fasta(
     ref_seq_norm = str(ref.seq).replace("-", "").upper()
 
     records: list[SeqRecord] = [
-        SeqRecord(ref.seq, id=ref.id, description=ref.description)
+        SeqRecord(ref.seq, id="seq_0", description="")
     ]
     metadata_rows: list[dict] = []
     # Maps normalised sequence → its assigned local index so that when the
@@ -178,7 +184,7 @@ def build_alignment_fasta(
             continue
 
         seen_seqs[seq_norm] = seq_idx
-        records.append(SeqRecord(Seq(seq_norm), id=str(row["sseqid"]), description=""))
+        records.append(SeqRecord(Seq(seq_norm), id=f"seq_{seq_idx}", description=""))
 
         for raw_taxid in str(row["staxids"]).split(";"):
             raw_taxid = raw_taxid.strip()
