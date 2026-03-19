@@ -45,6 +45,9 @@ results/
 # Snakemake
 .snakemake/
 
+# MkDocs build output
+site/
+
 # IDE
 .idea/
 .vscode/
