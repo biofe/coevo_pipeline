@@ -324,6 +324,23 @@ def draw_circular_tree(
 # ---------------------------------------------------------------------------
 
 
+def _get_leaves(node: Any) -> list[Any]:
+    """Return leaf nodes for any ete4 tree type.
+
+    Tries ``get_leaves()`` first (available on ``PhyloTree`` and modern ete4
+    trees), then falls back to iterating via ``traverse()`` filtered by
+    ``is_leaf()``.
+
+    Parameters
+    ----------
+    node:
+        Any ete4 tree node.
+    """
+    if hasattr(node, "get_leaves"):
+        return node.get_leaves()
+    return [n for n in node.traverse() if n.is_leaf()]
+
+
 def _dominant_category(
     child_categories: list[str],
     threshold: float = 0.9,
@@ -399,7 +416,7 @@ def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
     max_nodes:
         Target maximum number of leaf nodes.
     """
-    leaves = list(tree.iter_leaves())
+    leaves = _get_leaves(tree)
     if len(leaves) <= max_nodes:
         return
 
@@ -411,7 +428,7 @@ def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
     )
 
     for leaf in leaves_sorted:
-        if len(list(tree.iter_leaves())) <= max_nodes:
+        if len(_get_leaves(tree)) <= max_nodes:
             break
         parent = leaf.up
         if parent is None:
@@ -419,7 +436,7 @@ def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
         # Determine a representative category for the collapsed node
         sib_cats = [
             getattr(sib, "category", None)
-            for sib in parent.iter_leaves()
+            for sib in _get_leaves(parent)
             if getattr(sib, "category", None) is not None
         ]
         dominant = _dominant_category(sib_cats, threshold=0.0) or CATEGORY_BOTH

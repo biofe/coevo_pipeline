@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -434,6 +435,18 @@ class TestLimitVisibleNodes:
         _limit_visible_nodes(tree, max_nodes=10)
         assert len(list(tree.iter_leaves())) == 10
 
+    def test_no_change_when_below_limit_get_leaves(self) -> None:
+        """PhyloTree-like nodes expose get_leaves() instead of iter_leaves()."""
+        tree = _make_get_leaves_tree(n_leaves=5)
+        _limit_visible_nodes(tree, max_nodes=10)
+        assert len(tree.get_leaves()) == 5
+
+    def test_collapses_to_max_nodes_get_leaves(self) -> None:
+        """PhyloTree-like nodes expose get_leaves() instead of iter_leaves()."""
+        tree = _make_get_leaves_tree(n_leaves=20)
+        _limit_visible_nodes(tree, max_nodes=5)
+        assert len(tree.get_leaves()) <= 5
+
 
 # ---------------------------------------------------------------------------
 # Helpers used by tests
@@ -566,6 +579,57 @@ def _make_simple_tree(n_leaves: int) -> MagicMock:
     root = SimpleNode("root")
     for i in range(n_leaves):
         leaf = SimpleNode(str(i), category=CATEGORY_BOTH)
+        leaf.up = root
+        root.children.append(leaf)
+
+    return root  # type: ignore[return-value]
+
+
+def _make_get_leaves_tree(n_leaves: int) -> Any:
+    """Build a two-level tree that exposes ``get_leaves()`` but NOT ``iter_leaves()``.
+
+    This mimics the ``PhyloTree`` API used by ete4, where ``get_leaves()`` is
+    available but ``iter_leaves()`` is not.
+    """
+
+    class PhyloNode:
+        def __init__(self, name: str, category: str | None = None) -> None:
+            self.name = name
+            self.category = category
+            self.children: list[PhyloNode] = []
+            self.up: PhyloNode | None = None
+
+        def is_leaf(self) -> bool:
+            return len(self.children) == 0
+
+        def get_leaves(self) -> list[PhyloNode]:
+            if self.is_leaf():
+                return [self]
+            result: list[PhyloNode] = []
+            for child in self.children:
+                result.extend(child.get_leaves())
+            return result
+
+        def traverse(self, order: str = "levelorder"):
+            yield self
+            for child in self.children:
+                yield from child.traverse(order)
+
+        def add_feature(self, name: str, value: object) -> None:
+            setattr(self, name, value)
+
+        def detach(self) -> None:
+            if self.up is not None:
+                self.up.children.remove(self)
+                self.up = None
+
+        def get_distance(self, other: object, topology_only: bool = False) -> float:
+            # Simple two-level tree: leaves have depth 1
+            return 1.0 if self.is_leaf() else 0.0
+
+    root = PhyloNode("root")
+    for i in range(n_leaves):
+        leaf = PhyloNode(str(i), category=CATEGORY_BOTH)
         leaf.up = root
         root.children.append(leaf)
 
