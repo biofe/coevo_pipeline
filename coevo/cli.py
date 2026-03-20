@@ -251,7 +251,15 @@ def draw_tree(
     collapse_threshold: float = typer.Option(
         0.9,
         "--collapse-threshold",
-        help="Fraction of children sharing a category required to collapse a node (0–1).",
+        help=(
+            "Fraction of leaf descendants sharing a category required to collapse a node (0–1). "
+            "Higher values mean less collapsing and more nodes visible. Ignored with --show-all."
+        ),
+    ),
+    show_all: bool = typer.Option(
+        False,
+        "--show-all",
+        help="Display every leaf node without any collapsing, coloured by category.",
     ),
 ) -> None:
     """Draw a circular phylogenetic tree from BLAST taxonomy results.
@@ -309,6 +317,7 @@ def draw_tree(
         output_file=output,
         max_nodes=max_nodes,
         collapse_threshold=collapse_threshold,
+        show_all=show_all,
     )
     if output:
         logger.info(f"Phylogenetic tree saved to {output}")
