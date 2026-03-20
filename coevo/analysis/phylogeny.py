@@ -240,12 +240,6 @@ def draw_circular_tree(
         )
 
     from ete4 import NCBITaxa  # type: ignore[import]
-    from ete4.treeview import (  # type: ignore[import]
-        TreeStyle,
-        TextFace,
-        RectFace,
-        faces,
-    )
 
     if motif_taxids is None:
         motif_taxids = set()
@@ -292,50 +286,91 @@ def draw_circular_tree(
         f"Both: {cat_counts[CATEGORY_BOTH]}"
     )
 
-    # Build tree style (circular, custom layout)
-    def _layout(node: Any) -> None:
-        taxid = getattr(node, "taxid", None)
-        category = getattr(node, "category", None)
-        sci_name = getattr(node, "sci_name", node.name)
-
-        # Use img_style directly so that PhyloTree nodes (which store style as
-        # ``img_style`` rather than the private ``_img_style`` attribute) are
-        # handled correctly and the interactive viewer does not raise an
-        # AttributeError when inspecting node properties.
-        nstyle = node.img_style
-        if category:
-            color = CATEGORY_COLORS.get(category, DEFAULT_NODE_COLOR)
-            nstyle["fgcolor"] = color
-            nstyle["size"] = 8
-        else:
-            nstyle["fgcolor"] = DEFAULT_NODE_COLOR
-            nstyle["size"] = 4
-
-        if node.is_leaf:
-            label_bg = "#FFD700" if (taxid and taxid in motif_taxids) else None
-            tf = TextFace(sci_name, fsize=9)
-            if label_bg:
-                tf.background.color = label_bg
-            faces.add_face_to_node(tf, node, column=0)
-
-    ts = TreeStyle()
-    ts.mode = "c"  # circular layout
-    ts.show_leaf_name = False
-    ts.layout_fn = _layout
-    ts.title.add_face(TextFace("Circular Phylogenetic Tree", fsize=14), column=0)
-
-    # Legend
-    for category, color in CATEGORY_COLORS.items():
-        label = category.replace("_", " ").title()
-        ts.legend.add_face(RectFace(20, 20, color, color), column=0)
-        ts.legend.add_face(TextFace(f"  {label}", fsize=10), column=1)
-    ts.legend_position = 1
-
     if output_file:
+        # File rendering uses the PyQt6-backed treeview API (requires PyQt6).
+        from ete4.treeview import (  # type: ignore[import]
+            TreeStyle,
+            TextFace,
+            RectFace,
+            faces,
+        )
+
+        def _layout(node: Any) -> None:
+            taxid = getattr(node, "taxid", None)
+            category = getattr(node, "category", None)
+            sci_name = getattr(node, "sci_name", node.name)
+
+            nstyle = node.img_style
+            if category:
+                color = CATEGORY_COLORS.get(category, DEFAULT_NODE_COLOR)
+                nstyle["fgcolor"] = color
+                nstyle["size"] = 8
+            else:
+                nstyle["fgcolor"] = DEFAULT_NODE_COLOR
+                nstyle["size"] = 4
+
+            if node.is_leaf:
+                label_bg = "#FFD700" if (taxid and taxid in motif_taxids) else None
+                tf = TextFace(sci_name, fsize=9)
+                if label_bg:
+                    tf.background.color = label_bg
+                faces.add_face_to_node(tf, node, column=0)
+
+        ts = TreeStyle()
+        ts.mode = "c"  # circular layout
+        ts.show_leaf_name = False
+        ts.layout_fn = _layout
+        ts.title.add_face(TextFace("Circular Phylogenetic Tree", fsize=14), column=0)
+
+        for category, color in CATEGORY_COLORS.items():
+            label = category.replace("_", " ").title()
+            ts.legend.add_face(RectFace(20, 20, color, color), column=0)
+            ts.legend.add_face(TextFace(f"  {label}", fsize=10), column=1)
+        ts.legend_position = 1
+
         tree.render(str(output_file), tree_style=ts)
         logger.info(f"Circular phylogenetic tree rendered to {output_file}")
     else:
-        tree.explore(tree_style=ts)
+        # Interactive mode uses ETE4's smartview API which does not require
+        # PyQt6 and serialises all data as plain JSON-compatible dicts.
+        # ``keep_server=True`` makes the server thread non-daemon so the
+        # process stays alive until the user terminates it.
+        from ete4.smartview import Layout as _SmartLayout  # type: ignore[import]
+        from ete4.smartview.faces import (  # type: ignore[import]
+            TextFace as _SmartTextFace,
+        )
+
+        def _draw_node(node: Any, collapsed: bool) -> Any:
+            taxid = getattr(node, "taxid", None)
+            category = getattr(node, "category", None)
+            sci_name = getattr(node, "sci_name", node.name)
+
+            color = (
+                CATEGORY_COLORS.get(category, DEFAULT_NODE_COLOR)
+                if category
+                else DEFAULT_NODE_COLOR
+            )
+
+            # Style the node dot with the category colour.
+            yield {"dot": {"fill": color, "r": 8 if category else 4}}
+
+            # Add a text label for leaf nodes.
+            if node.is_leaf or collapsed:
+                label_bg = "#FFD700" if (taxid and taxid in motif_taxids) else None
+                face_style = f"fill:{color}"
+                if label_bg:
+                    face_style += f";background-color:{label_bg}"
+                yield _SmartTextFace(
+                    sci_name, fs_max=9, style=face_style, position="right"
+                )
+
+        layout = _SmartLayout(
+            name="coevo_layout",
+            draw_tree={"shape": "circular"},
+            draw_node=_draw_node,
+        )
+
+        tree.explore(layouts=[layout], keep_server=True)
 
     return tree
 
