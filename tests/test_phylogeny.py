@@ -321,7 +321,7 @@ class TestDrawCircularTree:
                 draw_circular_tree({1}, {2}, output_file="/tmp/t.png")
 
     def test_interactive_show_called_without_output_file(self) -> None:
-        """When output_file is None, tree.explore() should be called."""
+        """When output_file is None, tree.explore() should be called with keep_server=True."""
         mock_ncbi_cls = MagicMock()
         mock_tree = _make_mock_tree()
         mock_ncbi_cls.return_value.get_topology.return_value = mock_tree
@@ -332,12 +332,15 @@ class TestDrawCircularTree:
                 "sys.modules",
                 {
                     "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
-                    "ete4.treeview": _make_mock_treeview(),
+                    "ete4.smartview": _make_mock_smartview(),
+                    "ete4.smartview.faces": _make_mock_smartview_faces(),
                 },
             ):
                 draw_circular_tree({1}, {2})
 
         mock_tree.explore.assert_called_once()
+        _, explore_kwargs = mock_tree.explore.call_args
+        assert explore_kwargs.get("keep_server") is True
 
     def test_render_called_with_output_file(self) -> None:
         """When output_file is given, tree.render() should be called."""
@@ -505,6 +508,20 @@ def _make_mock_treeview() -> MagicMock:
     mock_tv.TextFace.return_value = MagicMock()
     mock_tv.RectFace.return_value = MagicMock()
     return mock_tv
+
+
+def _make_mock_smartview() -> MagicMock:
+    """Return a mock ete4.smartview module for interactive-path tests."""
+    mock_sv = MagicMock()
+    mock_sv.Layout.return_value = MagicMock()
+    return mock_sv
+
+
+def _make_mock_smartview_faces() -> MagicMock:
+    """Return a mock ete4.smartview.faces module for interactive-path tests."""
+    mock_faces = MagicMock()
+    mock_faces.TextFace.return_value = MagicMock()
+    return mock_faces
 
 
 def _make_mock_tree() -> MagicMock:
