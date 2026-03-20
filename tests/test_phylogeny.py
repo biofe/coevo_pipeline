@@ -321,7 +321,7 @@ class TestDrawCircularTree:
                 draw_circular_tree({1}, {2}, output_file="/tmp/t.png")
 
     def test_interactive_show_called_without_output_file(self) -> None:
-        """When output_file is None, tree.show() should be called."""
+        """When output_file is None, tree.explore() should be called."""
         mock_ncbi_cls = MagicMock()
         mock_tree = _make_mock_tree()
         mock_ncbi_cls.return_value.get_topology.return_value = mock_tree
@@ -337,7 +337,7 @@ class TestDrawCircularTree:
             ):
                 draw_circular_tree({1}, {2})
 
-        mock_tree.show.assert_called_once()
+        mock_tree.explore.assert_called_once()
 
     def test_render_called_with_output_file(self) -> None:
         """When output_file is given, tree.render() should be called."""
