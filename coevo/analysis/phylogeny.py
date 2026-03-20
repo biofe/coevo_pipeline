@@ -182,6 +182,7 @@ def draw_circular_tree(
     output_file: str | None = None,
     max_nodes: int = 200,
     collapse_threshold: float = 0.9,
+    show_all: bool = False,
 ) -> Any:
     """Draw a circular phylogenetic tree from BLAST taxonomy IDs.
 
@@ -193,11 +194,15 @@ def draw_circular_tree(
     - **blue** (``#2196F3``) – found only in the rRNA BLAST search.
     - **orange** (``#FF9800``) – found in both searches.
 
-    If more than *collapse_threshold* (default: 90 %) of the direct children of
-    an internal node share the same category, that node is collapsed and
-    coloured accordingly.  The tree is limited to *max_nodes* visible leaves by
-    collapsing nodes starting from those closest to the root (deepest subtrees
-    first).
+    Unless *show_all* is ``True``, subtrees where at least *collapse_threshold*
+    of all leaf descendants share the same category are collapsed into a single
+    coloured leaf.  The collapse check uses the original leaf distribution so
+    that a higher threshold always means less collapsing (more nodes visible).
+    After category-based collapsing the tree is further limited to *max_nodes*
+    visible leaves by collapsing nodes starting from the deepest subtrees first.
+
+    When *show_all* is ``True``, no collapsing or node limiting is applied and
+    every leaf is displayed, coloured by its category.
 
     Nodes whose taxid appears in *motif_taxids* receive a gold (``#FFD700``)
     background on their label to indicate motif presence.
@@ -217,9 +222,15 @@ def draw_circular_tree(
         which requires a graphical display.
     max_nodes:
         Maximum number of visible leaf nodes after collapsing.  Default 200.
+        Ignored when *show_all* is ``True``.
     collapse_threshold:
-        Fraction of direct children that must share a category for a node to
-        be collapsed into a single coloured leaf.  Default 0.9 (90 %).
+        Fraction of leaf descendants that must share a category for a node to
+        be collapsed into a single coloured leaf.  Higher values mean less
+        collapsing (more nodes visible).  Default 0.9 (90 %).
+        Ignored when *show_all* is ``True``.
+    show_all:
+        When ``True``, skip all collapsing and display every leaf node in the
+        tree coloured by category.  Default ``False``.
 
     Returns
     -------
@@ -264,11 +275,12 @@ def draw_circular_tree(
         node.sci_name = sci_names.get(taxid, node.name) if taxid else node.name
         node.category = categories.get(taxid) if taxid else None
 
-    # Collapse subtrees where children share a dominant category
-    _collapse_by_category(tree, threshold=collapse_threshold)
+    # Collapse subtrees where leaf descendants share a dominant category
+    if not show_all:
+        _collapse_by_category(tree, threshold=collapse_threshold)
 
-    # Further limit visible nodes to max_nodes
-    _limit_visible_nodes(tree, max_nodes=max_nodes)
+        # Further limit visible nodes to max_nodes
+        _limit_visible_nodes(tree, max_nodes=max_nodes)
 
     # Colour all remaining internal nodes by their subtree's dominant category
     _propagate_categories(tree)
@@ -471,20 +483,38 @@ def _dominant_category(
 
 
 def _collapse_by_category(tree: Any, threshold: float = 0.9) -> None:
-    """Collapse internal nodes whose direct children share a dominant category.
+    """Collapse internal nodes whose leaf descendants share a dominant category.
 
     Traverses the tree in post-order so that children are evaluated before
-    their parents.  When more than *threshold* of an internal node's direct
-    children share the same category, all children are detached (making the
-    node a leaf) and the node is annotated with the dominant category.
+    their parents.  The collapse decision is based on the distribution of
+    *original* leaf descendants (computed before any collapsing takes place),
+    so that a higher threshold always means less collapsing and more visible
+    nodes.  When at least *threshold* of a non-root internal node's original
+    leaf descendants share the same category, all children are detached (making
+    the node a leaf) and the node is annotated with the dominant category.
 
     Parameters
     ----------
     tree:
         Root of an ete4 tree.
     threshold:
-        Fraction of direct children required to collapse.  Default 0.9.
+        Fraction of leaf descendants required to collapse.  Default 0.9.
+        A higher value means less collapsing (more nodes remain visible).
     """
+    # Pre-compute the original leaf-category list for every node *before* any
+    # collapsing occurs.  This prevents the cascade where a collapsed subtree
+    # makes its parent appear homogeneous, leading to unwanted further collapse.
+    node_leaf_cats: dict[int, list[str]] = {}
+    for node in tree.traverse("postorder"):
+        if node.is_leaf:
+            cat = getattr(node, "category", None)
+            node_leaf_cats[id(node)] = [cat] if cat is not None else []
+        else:
+            cats: list[str] = []
+            for child in node.children:
+                cats.extend(node_leaf_cats.get(id(child), []))
+            node_leaf_cats[id(node)] = cats
+
     for node in list(tree.traverse("postorder")):
         if node.is_leaf:
             continue
@@ -492,16 +522,32 @@ def _collapse_by_category(tree: Any, threshold: float = 0.9) -> None:
         # node (no edges, no visible structure).
         if node.up is None:
             continue
-        child_cats = [
-            getattr(child, "category", None)
-            for child in node.children
-            if getattr(child, "category", None) is not None
-        ]
-        dominant = _dominant_category(child_cats, threshold=threshold)
+        leaf_cats = node_leaf_cats.get(id(node), [])
+        dominant = _dominant_category(leaf_cats, threshold=threshold)
         if dominant is not None:
             node.category = dominant
             for child in list(node.children):
                 child.detach()
+
+
+def _node_depth(node: Any) -> int:
+    """Return the number of edges from the root to *node*.
+
+    Computed by traversing ``node.up`` links upward.  This avoids calling
+    ``get_distance()`` which may not support the ``topology_only`` keyword
+    argument in all ete4 tree types.
+
+    Parameters
+    ----------
+    node:
+        Any ete4 tree node with an ``up`` attribute.
+    """
+    depth = 0
+    current = node
+    while current.up is not None:
+        depth += 1
+        current = current.up
+    return depth
 
 
 def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
@@ -525,7 +571,7 @@ def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
     # Sort leaves by depth descending; collapse their parents first
     leaves_sorted = sorted(
         leaves,
-        key=lambda n: n.get_distance(tree, topology_only=True),
+        key=_node_depth,
         reverse=True,
     )
 

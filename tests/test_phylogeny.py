@@ -17,6 +17,7 @@ from coevo.analysis.phylogeny import (
     _collapse_by_category,
     _dominant_category,
     _limit_visible_nodes,
+    _node_depth,
     _propagate_categories,
     classify_taxids,
     draw_circular_tree,
@@ -493,6 +494,136 @@ class TestLimitVisibleNodes:
         tree = _make_get_leaves_tree(n_leaves=20)
         _limit_visible_nodes(tree, max_nodes=5)
         assert len(tree.get_leaves()) <= 5
+
+
+# ---------------------------------------------------------------------------
+# Tests for _node_depth
+# ---------------------------------------------------------------------------
+
+
+class TestNodeDepth:
+    def test_root_has_depth_zero(self) -> None:
+        """Root node (no parent) should have depth 0."""
+        tree = _make_simple_tree(n_leaves=3)
+        assert _node_depth(tree) == 0
+
+    def test_leaf_has_depth_one_in_two_level_tree(self) -> None:
+        """Leaves in a two-level tree should have depth 1."""
+        tree = _make_simple_tree(n_leaves=3)
+        for leaf in tree.iter_leaves():
+            assert _node_depth(leaf) == 1
+
+    def test_deeper_leaves_have_higher_depth(self) -> None:
+        """Leaves two levels down should have depth 2."""
+        tree = _make_three_level_tree()
+        # All leaves in _make_three_level_tree are two edges from root
+        assert all(_node_depth(leaf) == 2 for leaf in tree.iter_leaves())
+
+
+# ---------------------------------------------------------------------------
+# Tests for _collapse_by_category cascade fix
+# ---------------------------------------------------------------------------
+
+
+class TestCollapseByCategoryCascade:
+    def test_higher_threshold_shows_more_nodes(self) -> None:
+        """A higher threshold should collapse fewer nodes (more nodes visible).
+
+        This verifies the cascade-free behaviour: with threshold=1.0 only nodes
+        whose *original* leaf descendants are 100 % homogeneous are collapsed,
+        whereas threshold=0.9 collapses nodes with ≥ 90 % homogeneous leaves,
+        so threshold=1.0 must leave ≥ as many nodes as threshold=0.9.
+        """
+        # Build a three-level tree where some subtrees are pure and one is mixed
+        tree_strict = _make_three_level_tree()
+        tree_loose = _make_three_level_tree()
+
+        _collapse_by_category(tree_strict, threshold=1.0)
+        _collapse_by_category(tree_loose, threshold=0.9)
+
+        strict_leaves = len(list(tree_strict.iter_leaves()))
+        loose_leaves = len(list(tree_loose.iter_leaves()))
+
+        # threshold=1.0 (strict) must leave at least as many leaves as 0.9 (loose)
+        assert strict_leaves >= loose_leaves
+
+    def test_no_cascade_when_mixed_subtree_present(self) -> None:
+        """A subtree with mixed categories prevents parent from collapsing.
+
+        With the pre-computed leaf approach, a node whose leaf descendants are
+        heterogeneous will not be collapsed even if other subtrees have already
+        been collapsed and the parent's visible children happen to be homogeneous.
+        """
+        tree = _make_three_level_tree()
+        # The tree has one mixed child subtree (see _make_three_level_tree)
+        _collapse_by_category(tree, threshold=1.0)
+        # The mixed subtree prevents complete collapse to the root level
+        assert not tree.is_leaf
+        assert len(list(tree.iter_leaves())) > 1
+
+
+# ---------------------------------------------------------------------------
+# Tests for draw_circular_tree show_all parameter
+# ---------------------------------------------------------------------------
+
+
+class TestShowAll:
+    def _build_mocks(self):
+        mock_ncbi_cls = MagicMock()
+        mock_tree = _make_mock_tree()
+        mock_ncbi_cls.return_value.get_topology.return_value = mock_tree
+        mock_ncbi_cls.return_value.get_taxid_translator.return_value = {}
+        return mock_ncbi_cls, mock_tree
+
+    def test_show_all_skips_collapse(self) -> None:
+        """With show_all=True, _collapse_by_category must not be called."""
+        mock_ncbi_cls, mock_tree = self._build_mocks()
+
+        import coevo.analysis.phylogeny as phylo_mod
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.treeview": _make_mock_treeview(),
+                },
+            ):
+                with patch.object(
+                    phylo_mod, "_collapse_by_category"
+                ) as mock_collapse, patch.object(
+                    phylo_mod, "_limit_visible_nodes"
+                ) as mock_limit:
+                    draw_circular_tree(
+                        {1}, {2}, output_file="/tmp/t.png", show_all=True
+                    )
+
+        mock_collapse.assert_not_called()
+        mock_limit.assert_not_called()
+
+    def test_show_all_false_calls_collapse(self) -> None:
+        """With show_all=False (default), _collapse_by_category must be called."""
+        mock_ncbi_cls, mock_tree = self._build_mocks()
+
+        import coevo.analysis.phylogeny as phylo_mod
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.treeview": _make_mock_treeview(),
+                },
+            ):
+                with patch.object(
+                    phylo_mod, "_collapse_by_category"
+                ) as mock_collapse, patch.object(
+                    phylo_mod, "_limit_visible_nodes"
+                ) as mock_limit:
+                    draw_circular_tree({1}, {2}, output_file="/tmp/t.png")
+
+        mock_collapse.assert_called_once()
+        mock_limit.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -974,5 +1105,100 @@ def _make_get_leaves_tree(n_leaves: int) -> Any:
         leaf = PhyloNode(str(i), category=CATEGORY_BOTH)
         leaf.up = root
         root.children.append(leaf)
+
+    return root  # type: ignore[return-value]
+
+
+def _make_three_level_tree() -> Any:
+    """Build a three-level tree for cascade/threshold tests.
+
+    Structure (root → internal nodes → leaves)::
+
+        root
+        ├── internal_A  (3 protein_only leaves  → 100% homogeneous)
+        │   ├── leaf_a1 (protein_only)
+        │   ├── leaf_a2 (protein_only)
+        │   └── leaf_a3 (protein_only)
+        ├── internal_B  (3 rna_only leaves → 100% homogeneous)
+        │   ├── leaf_b1 (rna_only)
+        │   ├── leaf_b2 (rna_only)
+        │   └── leaf_b3 (rna_only)
+        └── internal_C  (2 protein_only + 1 rna_only → mixed ~67%/33%)
+            ├── leaf_c1 (protein_only)
+            ├── leaf_c2 (protein_only)
+            └── leaf_c3 (rna_only)
+
+    ``internal_A`` and ``internal_B`` are fully homogeneous subtrees and will
+    be collapsed at threshold ≤ 1.0.  ``internal_C`` is mixed, so it will only
+    collapse if the threshold is ≤ 0.67.  The root is never collapsed.
+    """
+
+    class TLNode:
+        def __init__(self, name: str, category: str | None = None) -> None:
+            self.name = name
+            self.category = category
+            self.children: list[TLNode] = []
+            self.up: TLNode | None = None
+
+        @property
+        def is_leaf(self) -> bool:
+            return len(self.children) == 0
+
+        def iter_leaves(self):
+            if self.is_leaf:
+                yield self
+            else:
+                for child in self.children:
+                    yield from child.iter_leaves()
+
+        def traverse(self, order: str = "levelorder"):
+            if order == "postorder":
+                for child in self.children:
+                    yield from child.traverse("postorder")
+                yield self
+            else:
+                yield self
+                for child in self.children:
+                    yield from child.traverse(order)
+
+        def add_feature(self, name: str, value: object) -> None:
+            setattr(self, name, value)
+
+        def detach(self) -> None:
+            if self.up is not None:
+                self.up.children.remove(self)
+                self.up = None
+
+    def _add_children(parent: TLNode, specs: list[tuple[str, str | None]]) -> None:
+        for name, cat in specs:
+            child = TLNode(name, category=cat)
+            child.up = parent
+            parent.children.append(child)
+
+    root = TLNode("root")
+
+    internal_a = TLNode("internal_A")
+    internal_a.up = root
+    root.children.append(internal_a)
+    _add_children(
+        internal_a,
+        [("a1", CATEGORY_PROTEIN_ONLY), ("a2", CATEGORY_PROTEIN_ONLY), ("a3", CATEGORY_PROTEIN_ONLY)],
+    )
+
+    internal_b = TLNode("internal_B")
+    internal_b.up = root
+    root.children.append(internal_b)
+    _add_children(
+        internal_b,
+        [("b1", CATEGORY_RNA_ONLY), ("b2", CATEGORY_RNA_ONLY), ("b3", CATEGORY_RNA_ONLY)],
+    )
+
+    internal_c = TLNode("internal_C")
+    internal_c.up = root
+    root.children.append(internal_c)
+    _add_children(
+        internal_c,
+        [("c1", CATEGORY_PROTEIN_ONLY), ("c2", CATEGORY_PROTEIN_ONLY), ("c3", CATEGORY_RNA_ONLY)],
+    )
 
     return root  # type: ignore[return-value]
