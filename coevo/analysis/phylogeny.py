@@ -213,7 +213,7 @@ def draw_circular_tree(
         These nodes receive a highlighted label background.
     output_file:
         If provided, the tree is rendered to this image file (PNG or SVG).
-        When *None*, the tree is displayed interactively via ``tree.show()``,
+        When *None*, the tree is displayed interactively via ``tree.explore()``,
         which requires a graphical display.
     max_nodes:
         Maximum number of visible leaf nodes after collapsing.  Default 200.
@@ -335,7 +335,7 @@ def draw_circular_tree(
         tree.render(str(output_file), tree_style=ts)
         logger.info(f"Circular phylogenetic tree rendered to {output_file}")
     else:
-        tree.show(tree_style=ts)
+        tree.explore(tree_style=ts)
 
     return tree
 
