@@ -360,10 +360,34 @@ class TestDrawCircularTree:
         render_path = mock_tree.render.call_args[0][0]
         assert render_path == "/tmp/out.png"
 
+    def test_logs_category_summary(self) -> None:
+        """draw_circular_tree should log a category summary via logger.info."""
+        mock_ncbi_cls = MagicMock()
+        mock_tree = _make_mock_tree()
+        mock_ncbi_cls.return_value.get_topology.return_value = mock_tree
+        mock_ncbi_cls.return_value.get_taxid_translator.return_value = {}
 
-# ---------------------------------------------------------------------------
-# Tests for _collapse_by_category helper
-# ---------------------------------------------------------------------------
+        import coevo.analysis.phylogeny as phylo_mod
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.treeview": _make_mock_treeview(),
+                },
+            ):
+                with patch.object(phylo_mod.logger, "info") as mock_info:
+                    # protein_taxids={1}, rna_taxids={2} -> 1 protein_only, 1 rna_only
+                    draw_circular_tree({1}, {2}, output_file="/tmp/out.png")
+
+        # At least one info call should contain the category summary
+        logged_messages = " ".join(
+            str(call_args) for call_args in mock_info.call_args_list
+        )
+        assert "Protein Only" in logged_messages
+        assert "Rna Only" in logged_messages
+        assert "Both" in logged_messages
 
 
 class TestCollapseByCategory:
@@ -377,6 +401,7 @@ class TestCollapseByCategory:
                 ("3", CATEGORY_PROTEIN_ONLY),
             ],
         )
+        parent.up = MagicMock()  # make this an internal (non-root) node
         _collapse_by_category(parent, threshold=0.9)
         # All children detached -> parent is now a leaf
         assert parent.is_leaf
@@ -408,15 +433,33 @@ class TestCollapseByCategory:
                 ("3", CATEGORY_PROTEIN_ONLY),
             ],
         )
+        parent.up = MagicMock()  # make this an internal (non-root) node
         _collapse_by_category(parent, threshold=0.5)
         # 2/3 ≈ 0.67 >= 0.5 -> collapse
         assert parent.is_leaf
         assert parent.category == CATEGORY_RNA_ONLY
+    def test_root_never_collapsed(self) -> None:
+        """Root node must never be collapsed even when all children share a category.
+
+        Collapsing the root would remove all edges and leave a single filled
+        circle – the bug reported in the issue.
+        """
+        root = _make_node_with_children(
+            parent_name="root",
+            children=[
+                ("1", CATEGORY_RNA_ONLY),
+                ("2", CATEGORY_RNA_ONLY),
+                ("3", CATEGORY_RNA_ONLY),
+            ],
+        )
+        # root.up is None so it IS the root
+        _collapse_by_category(root, threshold=0.9)
+        # Root should keep its children; tree must not reduce to a single node
+        assert not root.is_leaf
+        assert len(root.children) == 3
 
 
-# ---------------------------------------------------------------------------
-# Tests for _limit_visible_nodes helper
-# ---------------------------------------------------------------------------
+
 
 
 class TestLimitVisibleNodes:

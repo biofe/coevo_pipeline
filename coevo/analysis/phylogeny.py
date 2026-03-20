@@ -46,6 +46,9 @@ CATEGORY_COLORS: dict[str, str] = {
     CATEGORY_BOTH: "#FF9800",           # orange
 }
 
+#: Default (uncategorised) node colour.
+DEFAULT_NODE_COLOR: str = "#999999"  # grey
+
 
 # ---------------------------------------------------------------------------
 # Public API – category classification
@@ -239,7 +242,6 @@ def draw_circular_tree(
     from ete4 import NCBITaxa  # type: ignore[import]
     from ete4.treeview import (  # type: ignore[import]
         TreeStyle,
-        NodeStyle,
         TextFace,
         RectFace,
         faces,
@@ -274,21 +276,40 @@ def draw_circular_tree(
     # Further limit visible nodes to max_nodes
     _limit_visible_nodes(tree, max_nodes=max_nodes)
 
+    # Summarise category counts for the logger
+    cat_counts: dict[str, int] = {
+        CATEGORY_PROTEIN_ONLY: 0,
+        CATEGORY_RNA_ONLY: 0,
+        CATEGORY_BOTH: 0,
+    }
+    for cat in categories.values():
+        if cat in cat_counts:
+            cat_counts[cat] += 1
+    logger.info(
+        "Tree category summary — "
+        f"Protein Only: {cat_counts[CATEGORY_PROTEIN_ONLY]}, "
+        f"Rna Only: {cat_counts[CATEGORY_RNA_ONLY]}, "
+        f"Both: {cat_counts[CATEGORY_BOTH]}"
+    )
+
     # Build tree style (circular, custom layout)
     def _layout(node: Any) -> None:
         taxid = getattr(node, "taxid", None)
         category = getattr(node, "category", None)
         sci_name = getattr(node, "sci_name", node.name)
 
-        nstyle = NodeStyle()
+        # Use img_style directly so that PhyloTree nodes (which store style as
+        # ``img_style`` rather than the private ``_img_style`` attribute) are
+        # handled correctly and the interactive viewer does not raise an
+        # AttributeError when inspecting node properties.
+        nstyle = node.img_style
         if category:
-            color = CATEGORY_COLORS.get(category, "#999999")
+            color = CATEGORY_COLORS.get(category, DEFAULT_NODE_COLOR)
             nstyle["fgcolor"] = color
-            nstyle["bgcolor"] = color
             nstyle["size"] = 8
         else:
+            nstyle["fgcolor"] = DEFAULT_NODE_COLOR
             nstyle["size"] = 4
-        node.set_style(nstyle)
 
         if node.is_leaf:
             label_bg = "#FFD700" if (taxid and taxid in motif_taxids) else None
@@ -389,6 +410,10 @@ def _collapse_by_category(tree: Any, threshold: float = 0.9) -> None:
     """
     for node in list(tree.traverse("postorder")):
         if node.is_leaf:
+            continue
+        # Never collapse the root – doing so would leave the tree as a single
+        # node (no edges, no visible structure).
+        if node.up is None:
             continue
         child_cats = [
             getattr(child, "category", None)
