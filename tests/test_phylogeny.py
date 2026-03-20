@@ -17,6 +17,7 @@ from coevo.analysis.phylogeny import (
     _collapse_by_category,
     _dominant_category,
     _limit_visible_nodes,
+    _propagate_categories,
     classify_taxids,
     draw_circular_tree,
     phylum_summary,
@@ -495,8 +496,286 @@ class TestLimitVisibleNodes:
 
 
 # ---------------------------------------------------------------------------
-# Helpers used by tests
+# Tests for _propagate_categories
 # ---------------------------------------------------------------------------
+
+
+class TestPropagateCategories:
+    def test_sets_category_on_uncategorised_internal_node(self) -> None:
+        """An internal node with no category gets one from its leaf subtree."""
+        parent = _make_node_with_children(
+            parent_name="10",
+            children=[
+                ("1", CATEGORY_PROTEIN_ONLY),
+                ("2", CATEGORY_PROTEIN_ONLY),
+                ("3", CATEGORY_PROTEIN_ONLY),
+            ],
+        )
+        assert parent.category is None
+        _propagate_categories(parent)
+        assert parent.category == CATEGORY_PROTEIN_ONLY
+
+    def test_skips_already_categorised_internal_node(self) -> None:
+        """An internal node with a category already set is left unchanged."""
+        parent = _make_node_with_children(
+            parent_name="10",
+            children=[
+                ("1", CATEGORY_PROTEIN_ONLY),
+                ("2", CATEGORY_RNA_ONLY),
+            ],
+        )
+        parent.category = CATEGORY_BOTH
+        _propagate_categories(parent)
+        assert parent.category == CATEGORY_BOTH
+
+    def test_skips_leaf_nodes(self) -> None:
+        """Leaf nodes are unaffected by propagation."""
+        parent = _make_node_with_children(
+            parent_name="10",
+            children=[
+                ("1", CATEGORY_RNA_ONLY),
+                ("2", CATEGORY_RNA_ONLY),
+            ],
+        )
+        _propagate_categories(parent)
+        # Children (leaves) should retain their original categories.
+        for child in parent.children:
+            assert child.category == CATEGORY_RNA_ONLY
+
+    def test_mixed_subtree_picks_most_common(self) -> None:
+        """With threshold=0.0, the most common category is chosen."""
+        parent = _make_node_with_children(
+            parent_name="10",
+            children=[
+                ("1", CATEGORY_BOTH),
+                ("2", CATEGORY_BOTH),
+                ("3", CATEGORY_PROTEIN_ONLY),
+            ],
+        )
+        _propagate_categories(parent)
+        assert parent.category == CATEGORY_BOTH
+
+    def test_no_category_when_all_leaves_uncategorised(self) -> None:
+        """Internal node stays uncategorised when leaves have no category."""
+        parent = _make_node_with_children(
+            parent_name="10",
+            children=[("1", None), ("2", None)],
+        )
+        _propagate_categories(parent)
+        assert parent.category is None
+
+
+# ---------------------------------------------------------------------------
+# Tests for interactive view features (dot radius, legend, popup, shape)
+# ---------------------------------------------------------------------------
+
+
+class TestInteractiveFeatures:
+    def _build_interactive_mocks(self):
+        mock_ncbi_cls = MagicMock()
+        mock_tree = _make_mock_tree()
+        mock_ncbi_cls.return_value.get_topology.return_value = mock_tree
+        mock_ncbi_cls.return_value.get_taxid_translator.return_value = {}
+        return mock_ncbi_cls, mock_tree
+
+    def test_legend_face_yielded_in_draw_tree(self) -> None:
+        """The draw_tree function should yield a LegendFace with CATEGORY_COLORS."""
+        mock_ncbi_cls, mock_tree = self._build_interactive_mocks()
+
+        legend_face_calls: list = []
+
+        class CapturingLayout:
+            def __init__(self, name, draw_tree=None, draw_node=None, **kw):
+                if callable(draw_tree):
+                    elements = list(draw_tree(None))
+                    for el in elements:
+                        if hasattr(el, "colormap"):
+                            legend_face_calls.append(el)
+
+        mock_sv = MagicMock()
+        mock_sv.Layout.side_effect = CapturingLayout
+
+        mock_legend_face_cls = MagicMock()
+
+        class RealLegendFace:
+            def __init__(self, title, variable, colormap=None, **kw):
+                self.colormap = colormap
+
+        mock_faces = MagicMock()
+        mock_faces.LegendFace.side_effect = RealLegendFace
+        mock_faces.TextFace.return_value = MagicMock()
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.smartview": mock_sv,
+                    "ete4.smartview.faces": mock_faces,
+                },
+            ):
+                draw_circular_tree({1}, {2})
+
+        assert len(legend_face_calls) == 1
+        colormap = legend_face_calls[0].colormap
+        assert colormap is not None
+        # All three category labels must appear in the legend.
+        label_keys = set(colormap.keys())
+        assert any("Protein Only" in k or "Protein" in k for k in label_keys)
+
+    def test_draw_tree_sets_collapsed_shape_outline(self) -> None:
+        """The draw_tree function must request collapsed-shape=outline."""
+        mock_ncbi_cls, mock_tree = self._build_interactive_mocks()
+
+        style_dicts: list = []
+
+        class CapturingLayout:
+            def __init__(self, name, draw_tree=None, draw_node=None, **kw):
+                if callable(draw_tree):
+                    for el in draw_tree(None):
+                        if isinstance(el, dict):
+                            style_dicts.append(el)
+
+        mock_sv = MagicMock()
+        mock_sv.Layout.side_effect = CapturingLayout
+        mock_faces = _make_mock_smartview_faces()
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.smartview": mock_sv,
+                    "ete4.smartview.faces": mock_faces,
+                },
+            ):
+                draw_circular_tree({1}, {2})
+
+        combined = {}
+        for d in style_dicts:
+            combined.update(d)
+        assert combined.get("collapsed-shape") == "outline"
+
+    def test_draw_tree_sets_popup_props(self) -> None:
+        """The draw_tree function must declare the four popup properties."""
+        mock_ncbi_cls, mock_tree = self._build_interactive_mocks()
+
+        style_dicts: list = []
+
+        class CapturingLayout:
+            def __init__(self, name, draw_tree=None, draw_node=None, **kw):
+                if callable(draw_tree):
+                    for el in draw_tree(None):
+                        if isinstance(el, dict):
+                            style_dicts.append(el)
+
+        mock_sv = MagicMock()
+        mock_sv.Layout.side_effect = CapturingLayout
+        mock_faces = _make_mock_smartview_faces()
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.smartview": mock_sv,
+                    "ete4.smartview.faces": mock_faces,
+                },
+            ):
+                draw_circular_tree({1}, {2})
+
+        combined = {}
+        for d in style_dicts:
+            combined.update(d)
+        popup_props = combined.get("show-popup-props", [])
+        assert "Taxonomy ID" in popup_props
+        assert "Protein" in popup_props
+        assert "16S rRNA" in popup_props
+        assert "Both" in popup_props
+
+    def test_draw_node_dot_radius_categorised(self) -> None:
+        """Categorised nodes must have dot radius 5."""
+        mock_ncbi_cls, mock_tree = self._build_interactive_mocks()
+
+        captured_draw_node: list = []
+
+        class CapturingLayout:
+            def __init__(self, name, draw_tree=None, draw_node=None, **kw):
+                if draw_node is not None:
+                    captured_draw_node.append(draw_node)
+
+        mock_sv = MagicMock()
+        mock_sv.Layout.side_effect = CapturingLayout
+        mock_faces = _make_mock_smartview_faces()
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.smartview": mock_sv,
+                    "ete4.smartview.faces": mock_faces,
+                },
+            ):
+                draw_circular_tree({1}, {2})
+
+        assert captured_draw_node, "draw_node function was not captured"
+        draw_node = captured_draw_node[0]
+
+        # Simulate a categorised leaf node.
+        mock_node = MagicMock()
+        mock_node.taxid = 1
+        mock_node.category = CATEGORY_PROTEIN_ONLY
+        mock_node.sci_name = "Organism A"
+        mock_node.name = "1"
+        mock_node.is_leaf = True
+
+        elements = list(draw_node(mock_node, False))
+        dot_dicts = [e for e in elements if isinstance(e, dict) and "dot" in e]
+        assert dot_dicts, "No dot dict found in draw_node output"
+        assert dot_dicts[0]["dot"]["r"] == 5
+
+    def test_draw_node_dot_radius_uncategorised(self) -> None:
+        """Uncategorised nodes must have dot radius 2."""
+        mock_ncbi_cls, mock_tree = self._build_interactive_mocks()
+
+        captured_draw_node: list = []
+
+        class CapturingLayout:
+            def __init__(self, name, draw_tree=None, draw_node=None, **kw):
+                if draw_node is not None:
+                    captured_draw_node.append(draw_node)
+
+        mock_sv = MagicMock()
+        mock_sv.Layout.side_effect = CapturingLayout
+        mock_faces = _make_mock_smartview_faces()
+
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "ete4": MagicMock(NCBITaxa=mock_ncbi_cls),
+                    "ete4.smartview": mock_sv,
+                    "ete4.smartview.faces": mock_faces,
+                },
+            ):
+                draw_circular_tree({1}, {2})
+
+        assert captured_draw_node
+        draw_node = captured_draw_node[0]
+
+        # Simulate an uncategorised internal node.
+        mock_node = MagicMock()
+        mock_node.taxid = 99
+        mock_node.category = None
+        mock_node.sci_name = "Root"
+        mock_node.name = "99"
+        mock_node.is_leaf = False
+
+        elements = list(draw_node(mock_node, False))
+        dot_dicts = [e for e in elements if isinstance(e, dict) and "dot" in e]
+        assert dot_dicts, "No dot dict found in draw_node output"
+        assert dot_dicts[0]["dot"]["r"] == 2
 
 
 def _make_mock_treeview() -> MagicMock:

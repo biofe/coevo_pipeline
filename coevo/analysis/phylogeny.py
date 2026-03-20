@@ -270,6 +270,9 @@ def draw_circular_tree(
     # Further limit visible nodes to max_nodes
     _limit_visible_nodes(tree, max_nodes=max_nodes)
 
+    # Colour all remaining internal nodes by their subtree's dominant category
+    _propagate_categories(tree)
+
     # Summarise category counts for the logger
     cat_counts: dict[str, int] = {
         CATEGORY_PROTEIN_ONLY: 0,
@@ -304,10 +307,10 @@ def draw_circular_tree(
             if category:
                 color = CATEGORY_COLORS.get(category, DEFAULT_NODE_COLOR)
                 nstyle["fgcolor"] = color
-                nstyle["size"] = 8
+                nstyle["size"] = 5
             else:
                 nstyle["fgcolor"] = DEFAULT_NODE_COLOR
-                nstyle["size"] = 4
+                nstyle["size"] = 2
 
             if node.is_leaf:
                 label_bg = "#FFD700" if (taxid and taxid in motif_taxids) else None
@@ -337,8 +340,47 @@ def draw_circular_tree(
         # process stays alive until the user terminates it.
         from ete4.smartview import Layout as _SmartLayout  # type: ignore[import]
         from ete4.smartview.faces import (  # type: ignore[import]
+            LegendFace as _SmartLegendFace,
             TextFace as _SmartTextFace,
         )
+
+        # Annotate each node's props for the click-popup info window.
+        for node in tree.traverse():
+            taxid = getattr(node, "taxid", None)
+            if taxid is not None:
+                node.props["Taxonomy ID"] = str(taxid)
+            node_leaves = _get_leaves(node) if not node.is_leaf else [node]
+            leaf_cats = [
+                getattr(leaf, "category", None)
+                for leaf in node_leaves
+                if getattr(leaf, "category", None) is not None
+            ]
+            total = len(leaf_cats)
+            if total > 0:
+                node.props["Protein"] = (
+                    f"{100 * leaf_cats.count(CATEGORY_PROTEIN_ONLY) / total:.0f}%"
+                )
+                node.props["16S rRNA"] = (
+                    f"{100 * leaf_cats.count(CATEGORY_RNA_ONLY) / total:.0f}%"
+                )
+                node.props["Both"] = (
+                    f"{100 * leaf_cats.count(CATEGORY_BOTH) / total:.0f}%"
+                )
+
+        def _draw_tree_fn(tree: Any) -> Any:
+            yield {
+                "shape": "circular",
+                "collapsed-shape": "outline",
+                "show-popup-props": ["Taxonomy ID", "Protein", "16S rRNA", "Both"],
+            }
+            yield _SmartLegendFace(
+                "Category",
+                "discrete",
+                colormap={
+                    cat.replace("_", " ").title(): color
+                    for cat, color in CATEGORY_COLORS.items()
+                },
+            )
 
         def _draw_node(node: Any, collapsed: bool) -> Any:
             taxid = getattr(node, "taxid", None)
@@ -352,7 +394,7 @@ def draw_circular_tree(
             )
 
             # Style the node dot with the category colour.
-            yield {"dot": {"fill": color, "r": 8 if category else 4}}
+            yield {"dot": {"fill": color, "r": 5 if category else 2}}
 
             # Add a text label for leaf nodes.
             if node.is_leaf or collapsed:
@@ -366,7 +408,7 @@ def draw_circular_tree(
 
         layout = _SmartLayout(
             name="coevo_layout",
-            draw_tree={"shape": "circular"},
+            draw_tree=_draw_tree_fn,
             draw_node=_draw_node,
         )
 
@@ -503,3 +545,32 @@ def _limit_visible_nodes(tree: Any, max_nodes: int) -> None:
         parent.category = dominant
         for child in list(parent.children):
             child.detach()
+
+
+def _propagate_categories(tree: Any) -> None:
+    """Propagate category from leaf descendants to uncategorised internal nodes.
+
+    After :func:`_collapse_by_category` and :func:`_limit_visible_nodes` some
+    internal nodes may still lack a ``category`` attribute.  This function
+    assigns to each such node the dominant category among its remaining leaf
+    descendants so that intermediate nodes are coloured consistently with
+    collapsed nodes.
+
+    Parameters
+    ----------
+    tree:
+        Root of an ete4 tree (modified in-place).
+    """
+    for node in tree.traverse("postorder"):
+        if node.is_leaf:
+            continue
+        if getattr(node, "category", None) is not None:
+            continue
+        leaf_cats = [
+            getattr(leaf, "category", None)
+            for leaf in _get_leaves(node)
+            if getattr(leaf, "category", None) is not None
+        ]
+        dominant = _dominant_category(leaf_cats, threshold=0.0)
+        if dominant is not None:
+            node.category = dominant
