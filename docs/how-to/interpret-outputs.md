@@ -63,14 +63,38 @@ The Fisher's exact test result is logged to the console and (if produced) writte
 
 ---
 
-## phylum_summary.tsv
+## enterobacteriaceae_summary.tsv
 
-Located at `results/analysis/phylum_summary.tsv`.
+Located at `results/analysis/enterobacteriaceae_summary.tsv`.
 
 | Column | Description |
 |--------|-------------|
-| `taxid` | NCBI taxonomy ID |
-| `phylum` | Phylum name (currently `"Unknown"` — taxonomy integration is a planned feature) |
+| `rank` | Taxonomic rank: `"family"`, `"genus"`, or `"species"` |
+| `name` | Scientific name of the taxon |
+| `total` | Total number of taxids at that rank level |
+| `protein_only_pct` | Percentage of taxids found only in the protein search |
+| `rna_only_pct` | Percentage of taxids found only in the rRNA search |
+| `both_pct` | Percentage of taxids found in both searches |
 
-!!! note "Placeholder behaviour"
-    Phylum assignment currently returns `"Unknown"` for all taxids because automated NCBI taxonomy lookup has not yet been integrated. This is a known limitation — see [Caveats & assumptions](../explanation/caveats.md).
+**Reading the results:**
+
+- The first row is always the family-level summary (Enterobacteriaceae) giving an overall picture.
+- Genus and species rows let you identify which lineages show high co-occurrence (`both_pct`) or are exclusive to one search.
+- Species entries are only included when the species node's direct parent in the NCBI lineage has rank `"genus"`, filtering out anomalous taxonomy entries.
+
+---
+
+## motif_histogram.tsv
+
+Located at `results/analysis/motif_histogram.tsv`.
+
+| Column | Description |
+|--------|-------------|
+| `offset` | Alignment offset (integer) at which the motif was found |
+| `count` | Number of sequences with the motif at that offset |
+
+**Reading the results:**
+
+- A narrow distribution of offsets (all counts concentrated around a single value) indicates that the motif occurs at a highly conserved position in the 16S rRNA alignment.
+- A spread distribution may reflect structural flexibility or alignment artefacts.
+- The file is empty (header only) when no motif results are available.

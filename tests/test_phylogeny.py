@@ -1419,6 +1419,18 @@ class TestEnterobacteriaceaeSummary:
         species_names = set(df.loc[df["rank"] == "species", "name"])
         assert "Escherichia fergusonii" in species_names
 
+    def test_species_excluded_when_parent_is_not_genus(self) -> None:
+        """A species node whose immediate parent in the lineage has rank != 'genus' is excluded."""
+        # 3000 is a species whose direct parent in the lineage is 5000 (subgenus), not a genus.
+        lineage_map = {**_LINEAGE_MAP, 3000: [1, 543, 561, 5000, 3000]}
+        rank_map = {**_RANK_MAP, 5000: "subgenus", 3000: "species"}
+        name_map = {**_NAME_MAP, 5000: "Escherichia subgenus A", 3000: "Escherichia anomalous"}
+        mock_ncbi = _make_mock_ncbi(lineage_map, rank_map, name_map)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({3000}, set())
+        species_names = set(df.loc[df["rank"] == "species", "name"])
+        assert "Escherichia anomalous" not in species_names
+
 
 # ---------------------------------------------------------------------------
 # Tests for motif_position_histogram
