@@ -367,10 +367,35 @@ class TestCheckMotif:
         result = _check_motif("s", "AG", [1], [self._frag("a")], tolerance=2)
         assert result["motif_present"] is True
 
+    # -- motif_offset --
 
-# ---------------------------------------------------------------------------
-# Tests for detect_motif_in_alignment
-# ---------------------------------------------------------------------------
+    def test_motif_offset_zero_on_exact_match(self) -> None:
+        result = _check_motif("s", "ACGU", [1], [self._frag("A")], tolerance=0)
+        assert result["motif_present"] is True
+        assert result["motif_offset"] == 0
+
+    def test_motif_offset_none_when_absent(self) -> None:
+        result = _check_motif("s", "ACGU", [1], [self._frag("G")], tolerance=0)
+        assert result["motif_present"] is False
+        assert result["motif_offset"] is None
+
+    def test_motif_offset_positive_shift(self) -> None:
+        # "G" at position 5 (1-based) ± 1; "AACTTG" has 'G' at ungapped pos 6 -> delta=+1
+        result = _check_motif("s", "AACTTG", [5], [self._frag("g")], tolerance=1)
+        assert result["motif_present"] is True
+        assert result["motif_offset"] == 1
+
+    def test_motif_offset_negative_shift(self) -> None:
+        # "G" at position 5 ± 1; "AACG" has 'G' at ungapped pos 4 -> delta=-1
+        result = _check_motif("s", "AACG", [5], [self._frag("g")], tolerance=1)
+        assert result["motif_present"] is True
+        assert result["motif_offset"] == -1
+
+    def test_motif_offset_key_present_in_result(self) -> None:
+        result = _check_motif("s", "ACGU", [1], [self._frag("A")])
+        assert "motif_offset" in result
+
+
 
 
 class TestDetectMotifInAlignment:
@@ -390,6 +415,7 @@ class TestDetectMotifInAlignment:
         )
         assert "sequence_id" in df.columns
         assert "motif_present" in df.columns
+        assert "motif_offset" in df.columns
 
     def test_row_count(self, alignment_file: Path) -> None:
         df = detect_motif_in_alignment(
@@ -580,3 +606,40 @@ class TestDetectMotifInAlignment:
         assert results["seq1"] == True  # noqa: E712
         assert results["seq4"] == False  # noqa: E712
 
+
+    def test_motif_offset_zero_exact_position(self, alignment_file: Path) -> None:
+        """Motif found at exact position -> offset 0 for matched sequences."""
+        df = detect_motif_in_alignment(
+            alignment_file=str(alignment_file),
+            positions=[1, 2, 3],
+            fragments=["A", "C", "G"],
+            tolerance=0,
+        )
+        present = df[df["motif_present"] == True]  # noqa: E712
+        assert (present["motif_offset"] == 0).all()
+
+    def test_motif_offset_none_for_absent(self, alignment_file: Path) -> None:
+        """Sequences without the motif have motif_offset=None."""
+        df = detect_motif_in_alignment(
+            alignment_file=str(alignment_file),
+            positions=[1, 2, 3],
+            fragments=["A", "C", "G"],
+            tolerance=0,
+        )
+        absent = df[df["motif_present"] == False]  # noqa: E712
+        assert absent["motif_offset"].isna().all()
+
+    def test_motif_offset_with_tolerance(self, alignment_file: Path) -> None:
+        """With tolerance, offset can be non-zero for shifted matches."""
+        # position 4 (1-based) ± 1 = [3,5]; seq1 has 'U' at ungapped pos 4 (exact)
+        # so offset should be 0 for exact match
+        df = detect_motif_in_alignment(
+            alignment_file=str(alignment_file),
+            positions=[4],
+            fragments=["U"],
+            molecule_type="rna",
+            tolerance=1,
+        )
+        seq1_row = df[df["sequence_id"] == "seq1"]
+        assert seq1_row.iloc[0]["motif_present"] is True or seq1_row.iloc[0]["motif_present"] == True  # noqa: E712
+        assert seq1_row.iloc[0]["motif_offset"] == 0

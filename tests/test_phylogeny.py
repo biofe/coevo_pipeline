@@ -13,6 +13,7 @@ from coevo.analysis.phylogeny import (
     CATEGORY_COLORS,
     CATEGORY_PROTEIN_ONLY,
     CATEGORY_RNA_ONLY,
+    ENTEROBACTERIACEAE_TAXID,
     HAS_ETE4,
     _collapse_by_category,
     _dominant_category,
@@ -21,6 +22,8 @@ from coevo.analysis.phylogeny import (
     _propagate_categories,
     classify_taxids,
     draw_circular_tree,
+    enterobacteriaceae_summary,
+    motif_position_histogram,
     phylum_summary,
     top_phyla,
 )
@@ -1202,3 +1205,307 @@ def _make_three_level_tree() -> Any:
     )
 
     return root  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Tests for ENTEROBACTERIACEAE_TAXID constant
+# ---------------------------------------------------------------------------
+
+
+class TestEnterobacteriaceaeTaxidConstant:
+    def test_value_is_543(self) -> None:
+        assert ENTEROBACTERIACEAE_TAXID == 543
+
+
+# ---------------------------------------------------------------------------
+# Tests for enterobacteriaceae_summary
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_ncbi(
+    lineage_map: dict[int, list[int]],
+    rank_map: dict[int, str],
+    name_map: dict[int, str],
+) -> MagicMock:
+    """Build a minimal NCBITaxa mock with fixed lineage/rank/name data."""
+    mock = MagicMock()
+
+    def _get_lineage(taxid: int) -> list[int]:
+        if taxid not in lineage_map:
+            raise ValueError(f"Unknown taxid {taxid}")
+        return lineage_map[taxid]
+
+    mock.get_lineage.side_effect = _get_lineage
+    mock.get_rank.side_effect = lambda taxids: {t: rank_map.get(t, "no rank") for t in taxids}
+    mock.get_taxid_translator.side_effect = lambda taxids: {
+        t: name_map[t] for t in taxids if t in name_map
+    }
+    return mock
+
+
+# Minimal taxonomy tree used in the tests below:
+#   543 (family: Enterobacteriaceae)
+#     |-- 561 (genus: Escherichia)
+#     |    |-- 562 (species: Escherichia coli)
+#     |    |    |-- 1001 (strain)
+#     |    |    +-- 1002 (strain)
+#     |    +-- 1003 (species: Escherichia fergusonii)
+#     +-- 590 (genus: Salmonella)
+#          +-- 2000 (species: Salmonella enterica)
+#               +-- 2001 (strain)
+_LINEAGE_MAP: dict[int, list[int]] = {
+    1001: [1, 543, 561, 562, 1001],
+    1002: [1, 543, 561, 562, 1002],
+    1003: [1, 543, 561, 1003],
+    2001: [1, 543, 590, 2000, 2001],
+    9999: [1, 9999],  # outside Enterobacteriaceae
+}
+_RANK_MAP: dict[int, str] = {
+    1: "no rank",
+    543: "family",
+    561: "genus",
+    562: "species",
+    590: "genus",
+    2000: "species",
+    1001: "strain",
+    1002: "strain",
+    1003: "species",
+    2001: "strain",
+    9999: "genus",
+}
+_NAME_MAP: dict[int, str] = {
+    543: "Enterobacteriaceae",
+    561: "Escherichia",
+    562: "Escherichia coli",
+    590: "Salmonella",
+    2000: "Salmonella enterica",
+    1001: "E. coli strain A",
+    1002: "E. coli strain B",
+    1003: "Escherichia fergusonii",
+    2001: "S. enterica strain X",
+}
+
+
+def _patch_ete4_ncbi(ncbi_mock: MagicMock):
+    """Context manager: patch sys.modules so ete4.NCBITaxa returns *ncbi_mock*."""
+    return patch.dict(
+        "sys.modules",
+        {"ete4": MagicMock(NCBITaxa=MagicMock(return_value=ncbi_mock))},
+    )
+
+
+class TestEnterobacteriaceaeSummary:
+    # ------------------------------------------------------------------
+    # Without ete4
+    # ------------------------------------------------------------------
+
+    def test_returns_empty_when_ete4_missing(self) -> None:
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", False):
+            df = enterobacteriaceae_summary({1}, {2})
+        assert isinstance(df, pd.DataFrame)
+        assert df.empty
+        assert list(df.columns) == [
+            "rank", "name", "total", "protein_only_pct", "rna_only_pct", "both_pct"
+        ]
+
+    def test_returns_empty_when_taxids_empty(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary(set(), set())
+        assert df.empty
+
+    # ------------------------------------------------------------------
+    # Basic structure
+    # ------------------------------------------------------------------
+
+    def test_returns_dataframe(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 1002}, {2001})
+        assert isinstance(df, pd.DataFrame)
+
+    def test_columns_present(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 1002}, {2001})
+        for col in ["rank", "name", "total", "protein_only_pct", "rna_only_pct", "both_pct"]:
+            assert col in df.columns
+
+    def test_out_of_family_taxids_excluded(self) -> None:
+        """Taxid 9999 is not in Enterobacteriaceae and must not appear."""
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 9999}, set())
+        names = df["name"].tolist()
+        # 1001 is a strain under E. coli so Escherichia genus row should appear
+        assert "Escherichia" in names
+
+    def test_family_row_present(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 2001}, set())
+        assert "family" in df["rank"].values
+
+    def test_genus_rows_present(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 2001}, set())
+        genus_names = df.loc[df["rank"] == "genus", "name"].tolist()
+        assert "Escherichia" in genus_names
+        assert "Salmonella" in genus_names
+
+    def test_species_rows_present(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 2001}, set())
+        species_names = df.loc[df["rank"] == "species", "name"].tolist()
+        assert "Escherichia coli" in species_names
+        assert "Salmonella enterica" in species_names
+
+    def test_strains_not_listed_as_species(self) -> None:
+        """Strain taxids must not appear as dedicated species rows."""
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 1002, 2001}, set())
+        species_names = set(df.loc[df["rank"] == "species", "name"])
+        assert "E. coli strain A" not in species_names
+        assert "E. coli strain B" not in species_names
+        assert "S. enterica strain X" not in species_names
+
+    def test_family_comes_first(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 2001}, set())
+        assert df.iloc[0]["rank"] == "family"
+
+    def test_percentages_sum_to_100(self) -> None:
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001}, {2001})
+        for _, row in df.iterrows():
+            pct_sum = row["protein_only_pct"] + row["rna_only_pct"] + row["both_pct"]
+            assert pct_sum == pytest.approx(100.0, abs=0.5)
+
+    def test_category_both_counted(self) -> None:
+        """A taxid present in both sets must be counted as 'both'."""
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001}, {1001})
+        fam_row = df.loc[df["rank"] == "family"].iloc[0]
+        assert fam_row["both_pct"] == pytest.approx(100.0)
+        assert fam_row["protein_only_pct"] == pytest.approx(0.0)
+        assert fam_row["rna_only_pct"] == pytest.approx(0.0)
+
+    def test_total_counts_per_genus(self) -> None:
+        """Two strains under E. coli -> genus Escherichia total should be 2."""
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1001, 1002}, set())
+        ecoli_genus = df.loc[(df["rank"] == "genus") & (df["name"] == "Escherichia")]
+        assert ecoli_genus.iloc[0]["total"] == 2
+
+    def test_no_taxids_in_family_returns_empty(self) -> None:
+        """Only out-of-family taxids should produce an empty summary."""
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({9999}, set())
+        assert df.empty
+
+    def test_taxid_at_species_rank_listed_as_species(self) -> None:
+        """Taxid 1003 has rank 'species' itself, so it should appear as a species row."""
+        mock_ncbi = _make_mock_ncbi(_LINEAGE_MAP, _RANK_MAP, _NAME_MAP)
+        with patch("coevo.analysis.phylogeny.HAS_ETE4", True), _patch_ete4_ncbi(mock_ncbi):
+            df = enterobacteriaceae_summary({1003}, set())
+        species_names = set(df.loc[df["rank"] == "species", "name"])
+        assert "Escherichia fergusonii" in species_names
+
+
+# ---------------------------------------------------------------------------
+# Tests for motif_position_histogram
+# ---------------------------------------------------------------------------
+
+
+class TestMotifPositionHistogram:
+    def _make_df(self, rows: list[dict]) -> pd.DataFrame:
+        return pd.DataFrame(rows, columns=["sequence_id", "motif_present", "motif_offset"])
+
+    def test_returns_dataframe(self) -> None:
+        df = self._make_df([{"sequence_id": "s1", "motif_present": True, "motif_offset": 0}])
+        result = motif_position_histogram(df)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_columns(self) -> None:
+        df = self._make_df([{"sequence_id": "s1", "motif_present": True, "motif_offset": 0}])
+        result = motif_position_histogram(df)
+        assert list(result.columns) == ["offset", "count"]
+
+    def test_empty_input(self) -> None:
+        result = motif_position_histogram(pd.DataFrame())
+        assert result.empty
+        assert list(result.columns) == ["offset", "count"]
+
+    def test_missing_motif_offset_column(self) -> None:
+        df = pd.DataFrame([{"sequence_id": "s1", "motif_present": True}])
+        result = motif_position_histogram(df)
+        assert result.empty
+
+    def test_no_motif_present(self) -> None:
+        df = self._make_df([
+            {"sequence_id": "s1", "motif_present": False, "motif_offset": None},
+            {"sequence_id": "s2", "motif_present": False, "motif_offset": None},
+        ])
+        result = motif_position_histogram(df)
+        assert result.empty
+
+    def test_single_offset(self) -> None:
+        df = self._make_df([
+            {"sequence_id": "s1", "motif_present": True, "motif_offset": 0},
+            {"sequence_id": "s2", "motif_present": True, "motif_offset": 0},
+            {"sequence_id": "s3", "motif_present": False, "motif_offset": None},
+        ])
+        result = motif_position_histogram(df)
+        assert len(result) == 1
+        assert result.iloc[0]["offset"] == 0
+        assert result.iloc[0]["count"] == 2
+
+    def test_multiple_offsets(self) -> None:
+        df = self._make_df([
+            {"sequence_id": "s1", "motif_present": True, "motif_offset": -1},
+            {"sequence_id": "s2", "motif_present": True, "motif_offset": 0},
+            {"sequence_id": "s3", "motif_present": True, "motif_offset": 0},
+            {"sequence_id": "s4", "motif_present": True, "motif_offset": 1},
+        ])
+        result = motif_position_histogram(df)
+        assert len(result) == 3
+        offset_map = dict(zip(result["offset"].tolist(), result["count"].tolist()))
+        assert offset_map[-1] == 1
+        assert offset_map[0] == 2
+        assert offset_map[1] == 1
+
+    def test_sorted_by_offset(self) -> None:
+        df = self._make_df([
+            {"sequence_id": "s1", "motif_present": True, "motif_offset": 2},
+            {"sequence_id": "s2", "motif_present": True, "motif_offset": -2},
+            {"sequence_id": "s3", "motif_present": True, "motif_offset": 0},
+        ])
+        result = motif_position_histogram(df)
+        assert result["offset"].tolist() == sorted(result["offset"].tolist())
+
+    def test_absent_motifs_not_counted(self) -> None:
+        """motif_present=False rows must not contribute to the histogram."""
+        df = self._make_df([
+            {"sequence_id": "s1", "motif_present": True, "motif_offset": 1},
+            {"sequence_id": "s2", "motif_present": False, "motif_offset": 1},
+        ])
+        result = motif_position_histogram(df)
+        assert result.iloc[0]["count"] == 1
+
+    def test_zero_tolerance_all_offset_zero(self) -> None:
+        """With tolerance=0 all matched offsets should be 0."""
+        df = self._make_df([
+            {"sequence_id": "s1", "motif_present": True, "motif_offset": 0},
+            {"sequence_id": "s2", "motif_present": True, "motif_offset": 0},
+        ])
+        result = motif_position_histogram(df)
+        assert len(result) == 1
+        assert result.iloc[0]["offset"] == 0

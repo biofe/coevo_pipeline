@@ -224,9 +224,15 @@ def _check_motif(
     Returns
     -------
     dict
-        ``{"sequence_id": str, "motif_present": bool}``
+        ``{"sequence_id": str, "motif_present": bool, "motif_offset": int | None}``
+
+        *motif_offset* is the residue shift applied to the **first** fragment's
+        start position when the motif matched (``0`` = exact match; positive =
+        shifted right; negative = shifted left).  ``None`` when the motif is
+        absent.
     """
-    for pos, char_sets in zip(positions, parsed_fragments):
+    first_fragment_offset: int | None = None
+    for i, (pos, char_sets) in enumerate(zip(positions, parsed_fragments)):
         ungapped_start_0 = pos - 1  # convert 1-based to 0-based
         matched = False
         for delta in range(-tolerance, tolerance + 1):
@@ -235,10 +241,12 @@ def _check_motif(
                 continue
             if _match_fragment_at(sequence, candidate, char_sets):
                 matched = True
+                if i == 0:
+                    first_fragment_offset = delta
                 break
         if not matched:
-            return {"sequence_id": seq_id, "motif_present": False}
-    return {"sequence_id": seq_id, "motif_present": True}
+            return {"sequence_id": seq_id, "motif_present": False, "motif_offset": None}
+    return {"sequence_id": seq_id, "motif_present": True, "motif_offset": first_fragment_offset}
 
 
 def _check_motif_star(args: tuple) -> dict[str, Any]:
@@ -338,7 +346,7 @@ def detect_motif_in_alignment(
         with ProcessPoolExecutor(max_workers=n_jobs) as pool:
             rows = list(pool.map(_check_motif_star, args_list))
 
-    df = pd.DataFrame(rows, columns=["sequence_id", "motif_present"])
+    df = pd.DataFrame(rows, columns=["sequence_id", "motif_present", "motif_offset"])
     n_present = df["motif_present"].sum()
     logger.info(
         f"Motif detected in {n_present}/{len(df)} sequences "
