@@ -174,7 +174,7 @@ def top_phyla(
 # Public API – Enterobacteriaceae summary
 # ---------------------------------------------------------------------------
 
-#: NCBI taxid for the Enterobacteriaceae family.
+#: NCBI taxid for the Enterobacteriaceae family (source: NCBI Taxonomy Database).
 ENTEROBACTERIACEAE_TAXID: int = 543
 
 

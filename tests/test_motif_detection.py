@@ -641,5 +641,5 @@ class TestDetectMotifInAlignment:
             tolerance=1,
         )
         seq1_row = df[df["sequence_id"] == "seq1"]
-        assert seq1_row.iloc[0]["motif_present"] is True or seq1_row.iloc[0]["motif_present"] == True  # noqa: E712
+        assert bool(seq1_row.iloc[0]["motif_present"])
         assert seq1_row.iloc[0]["motif_offset"] == 0
