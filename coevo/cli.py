@@ -211,8 +211,10 @@ def analyse(
     from coevo.taxonomy.taxid_utils import read_taxids
     from coevo.analysis.cooccurrence import compute_cooccurrence
     from coevo.analysis.statistics import contingency_table, fisher_exact_test
-    from coevo.analysis.phylogeny import phylum_summary
-    from coevo.io.result_writer import write_dataframe, write_dict
+    from coevo.analysis.phylogeny import enterobacteriaceae_summary, motif_position_histogram
+    from coevo.io.result_writer import write_dict, write_sections_to_tsv
+
+    import pandas as pd
 
     taxa_dir = results_dir / "taxa"
     analysis_dir = results_dir / "analysis"
@@ -229,9 +231,26 @@ def analyse(
     stats = fisher_exact_test(table)
     logger.info(f"Fisher exact test: {stats}")
 
-    summary = phylum_summary(protein_taxa)
-    write_dataframe(summary, analysis_dir / "phylum_summary.tsv")
+    entero_summary = enterobacteriaceae_summary(protein_taxa, rna_taxa)
+    logger.info(f"Enterobacteriaceae summary: {len(entero_summary)} rows")
+
+    # Load motif results and compute position histogram when available
+    motif_file = analysis_dir / "motif_results.tsv"
+    if motif_file.exists():
+        motif_df = pd.read_csv(motif_file, sep="\t")
+        motif_histogram = motif_position_histogram(motif_df)
+        logger.info(f"Motif position histogram: {len(motif_histogram)} offset(s)")
+    else:
+        motif_histogram = pd.DataFrame(columns=["offset", "count"])
+        logger.info("Motif results not found; skipping 16S position histogram")
+
+    sections = [
+        ("Enterobacteriaceae Summary", entero_summary),
+        ("16S Motif Position Histogram", motif_histogram),
+    ]
+    write_sections_to_tsv(sections, analysis_dir / "phylum_summary.tsv")
     logger.info(f"Phylum summary written to {analysis_dir / 'phylum_summary.tsv'}")
+
 
 
 @app.command("draw-tree")

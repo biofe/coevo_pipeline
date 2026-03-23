@@ -171,6 +171,235 @@ def top_phyla(
 
 
 # ---------------------------------------------------------------------------
+# Public API – Enterobacteriaceae summary
+# ---------------------------------------------------------------------------
+
+#: NCBI taxid for the Enterobacteriaceae family (source: NCBI Taxonomy Database).
+ENTEROBACTERIACEAE_TAXID: int = 543
+
+
+def enterobacteriaceae_summary(
+    protein_taxids: set[int],
+    rna_taxids: set[int],
+    root_taxid: int = ENTEROBACTERIACEAE_TAXID,
+) -> pd.DataFrame:
+    """Build genus- and species-level statistics for Enterobacteriaceae.
+
+    For every taxid in the union of *protein_taxids* and *rna_taxids* that
+    belongs to the Enterobacteriaceae family (or any other family specified
+    via *root_taxid*), the function determines the ancestor genus and species
+    using :class:`ete4.NCBITaxa`.  Strain-level entries are folded into their
+    parent species row and are **not** reported as separate species.
+
+    The returned table contains one row per unique genus, one row per unique
+    species, and one summary row for the family as a whole.  Each row reports:
+
+    - ``rank`` – ``"family"``, ``"genus"``, or ``"species"``
+    - ``name`` – scientific name
+    - ``total`` – total number of taxids at that level
+    - ``protein_only_pct`` – percentage found only in the protein search
+    - ``rna_only_pct`` – percentage found only in the rRNA search
+    - ``both_pct`` – percentage found in both searches
+
+    Rows are ordered: family first, then genera alphabetically, then species
+    alphabetically.
+
+    Requires the optional ``ete4`` package.  When ``ete4`` is not installed
+    an empty DataFrame with the correct columns is returned and a warning is
+    logged.
+
+    Parameters
+    ----------
+    protein_taxids:
+        Set of taxids from the protein BLAST search.
+    rna_taxids:
+        Set of taxids from the rRNA BLAST search.
+    root_taxid:
+        NCBI taxid of the family to analyse.  Defaults to
+        ``543`` (Enterobacteriaceae).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: ``rank``, ``name``, ``total``, ``protein_only_pct``,
+        ``rna_only_pct``, ``both_pct``.
+    """
+    _empty_cols = ["rank", "name", "total", "protein_only_pct", "rna_only_pct", "both_pct"]
+
+    if not HAS_ETE4:
+        logger.warning(
+            "ete4 is not installed; Enterobacteriaceae summary requires ete4. "
+            "Install it with: pip install ete4"
+        )
+        return pd.DataFrame(columns=_empty_cols)
+
+    from ete4 import NCBITaxa  # type: ignore[import]
+
+    all_taxids = protein_taxids | rna_taxids
+    if not all_taxids:
+        return pd.DataFrame(columns=_empty_cols)
+
+    ncbi = NCBITaxa()
+    categories = classify_taxids(protein_taxids, rna_taxids)
+
+    records: list[dict[str, Any]] = []
+    for taxid in all_taxids:
+        try:
+            lineage: list[int] = ncbi.get_lineage(taxid)
+        except Exception:
+            logger.warning(f"Could not retrieve lineage for taxid {taxid}; skipping")
+            continue
+
+        if root_taxid not in lineage:
+            continue
+
+        rank_map: dict[int, str] = ncbi.get_rank(lineage)
+        name_map: dict[int, str] = ncbi.get_taxid_translator(lineage)
+
+        genus_taxid: int | None = None
+        species_taxid: int | None = None
+        for anc in lineage:
+            rank = rank_map.get(anc, "no rank")
+            if rank == "genus":
+                genus_taxid = anc
+            elif rank == "species":
+                species_taxid = anc
+
+        records.append(
+            {
+                "taxid": taxid,
+                "genus_taxid": genus_taxid,
+                "genus_name": name_map.get(genus_taxid) if genus_taxid is not None else None,
+                "species_taxid": species_taxid,
+                "species_name": (
+                    name_map.get(species_taxid) if species_taxid is not None else None
+                ),
+                "category": categories.get(taxid, CATEGORY_PROTEIN_ONLY),
+            }
+        )
+
+    if not records:
+        logger.info(f"No taxids found in Enterobacteriaceae (root taxid {root_taxid})")
+        return pd.DataFrame(columns=_empty_cols)
+
+    df = pd.DataFrame(records)
+
+    def _stats(group: pd.DataFrame) -> dict[str, Any]:
+        total = len(group)
+        n_protein = int((group["category"] == CATEGORY_PROTEIN_ONLY).sum())
+        n_rna = int((group["category"] == CATEGORY_RNA_ONLY).sum())
+        n_both = int((group["category"] == CATEGORY_BOTH).sum())
+        return {
+            "total": total,
+            "protein_only_pct": round(100 * n_protein / total, 1),
+            "rna_only_pct": round(100 * n_rna / total, 1),
+            "both_pct": round(100 * n_both / total, 1),
+        }
+
+    summary_rows: list[dict[str, Any]] = []
+
+    # Family-level row
+    fam_name_map: dict[int, str] = ncbi.get_taxid_translator([root_taxid])
+    fam_name = fam_name_map.get(root_taxid, "Enterobacteriaceae")
+    summary_rows.append({"rank": "family", "name": fam_name, **_stats(df)})
+
+    # Genus-level rows
+    genus_df = df[df["genus_taxid"].notna()]
+    for _gtid, group in genus_df.groupby("genus_taxid"):
+        summary_rows.append(
+            {"rank": "genus", "name": group["genus_name"].iloc[0], **_stats(group)}
+        )
+
+    # Species-level rows (strains without a species ancestor are excluded)
+    species_df = df[df["species_taxid"].notna()]
+    for _stid, group in species_df.groupby("species_taxid"):
+        summary_rows.append(
+            {"rank": "species", "name": group["species_name"].iloc[0], **_stats(group)}
+        )
+
+    result = pd.DataFrame(summary_rows, columns=_empty_cols)
+
+    # Sort: family → genus (alpha) → species (alpha)
+    rank_order = {"family": 0, "genus": 1, "species": 2}
+    result["_order"] = result["rank"].map(rank_order)
+    result = (
+        result.sort_values(["_order", "name"])
+        .drop(columns=["_order"])
+        .reset_index(drop=True)
+    )
+
+    logger.info(
+        f"Enterobacteriaceae summary: {len(result)} rows "
+        f"({(result['rank'] == 'genus').sum()} genera, "
+        f"{(result['rank'] == 'species').sum()} species)"
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Public API – 16S motif position histogram
+# ---------------------------------------------------------------------------
+
+
+def motif_position_histogram(motif_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute a histogram of 16S rRNA motif offsets.
+
+    Aggregates the ``motif_offset`` column produced by
+    :func:`~coevo.sequences.motif_detection.detect_motif_in_alignment` for
+    sequences where the motif was detected, counting how many sequences had
+    the motif at each relative offset from the configured position.
+
+    An offset of ``0`` means the motif was found exactly at the configured
+    position.  Positive values indicate a rightward shift; negative values
+    indicate a leftward shift.
+
+    Parameters
+    ----------
+    motif_df:
+        DataFrame returned by
+        :func:`~coevo.sequences.motif_detection.detect_motif_in_alignment`.
+        Must contain columns ``motif_present`` and ``motif_offset``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Two columns: ``offset`` (int) and ``count`` (int), sorted by
+        ``offset`` ascending.  Empty DataFrame (with these columns) when no
+        motif-positive sequences are found or the ``motif_offset`` column is
+        missing.
+    """
+    _empty = pd.DataFrame(columns=["offset", "count"])
+
+    if motif_df.empty:
+        return _empty
+
+    if "motif_offset" not in motif_df.columns:
+        logger.warning(
+            "motif_offset column not found in motif results; "
+            "re-run the detect-motif step to generate offset data"
+        )
+        return _empty
+
+    present = motif_df[motif_df["motif_present"].astype(bool)]
+    if present.empty:
+        return _empty
+
+    offsets = present["motif_offset"].dropna()
+    if offsets.empty:
+        return _empty
+
+    counts = (
+        offsets.astype(int)
+        .value_counts()
+        .sort_index()
+        .reset_index()
+    )
+    counts.columns = pd.Index(["offset", "count"])
+    logger.info(f"Motif position histogram: {len(counts)} distinct offset(s)")
+    return counts
+
+
+# ---------------------------------------------------------------------------
 # Public API – circular tree visualisation
 # ---------------------------------------------------------------------------
 
