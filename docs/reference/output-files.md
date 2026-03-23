@@ -19,10 +19,11 @@ results/
 │   ├── 16s_metadata.tsv        # seq_index → taxid mapping
 │   └── 16s_alignment.fasta     # MAFFT-aligned 16S sequences
 └── analysis/
-    ├── motif_results.tsv       # Per-sequence motif presence/absence
-    ├── cooccurrence.tsv        # Jaccard index and set sizes
-    ├── fisher_stats.tsv        # Odds ratio and p-value
-    └── phylum_summary.tsv      # Taxids grouped by phylum
+    ├── motif_results.tsv               # Per-sequence motif presence/absence
+    ├── cooccurrence.tsv                # Jaccard index and set sizes
+    ├── fisher_stats.tsv                # Odds ratio and p-value
+    ├── enterobacteriaceae_summary.tsv  # Genus/species breakdown for Enterobacteriaceae
+    └── motif_histogram.tsv             # 16S motif position offset histogram
 ```
 
 ---
@@ -163,11 +164,42 @@ and can be joined to ``16s_metadata.tsv`` via the numeric part of the identifier
 
 ---
 
-## `results/analysis/phylum_summary.tsv`
+## `results/analysis/enterobacteriaceae_summary.tsv`
 
 **Produced by:** `coevo analyse` / `rule analyse`
 
+Genus- and species-level co-occurrence statistics for the Enterobacteriaceae
+family.  One row is written for the family as a whole, one row per unique
+genus, and one row per unique species.
+
+Species-level rows are only included when the species node's direct parent in
+the NCBI lineage has rank ``"genus"``.  This guards against misclassified or
+anomalous taxonomy entries.
+
 | Column | Description |
 |--------|-------------|
-| `taxid` | NCBI taxid |
-| `phylum` | Phylum name (currently `"Unknown"` — see [caveats](../explanation/caveats.md)) |
+| `rank` | Taxonomic rank: `"family"`, `"genus"`, or `"species"` |
+| `name` | Scientific name of the taxon |
+| `total` | Total number of taxids at that rank level |
+| `protein_only_pct` | Percentage of taxids found only in the protein search |
+| `rna_only_pct` | Percentage of taxids found only in the rRNA search |
+| `both_pct` | Percentage of taxids found in both searches |
+
+Rows are ordered: family first, then genera alphabetically, then species
+alphabetically.
+
+---
+
+## `results/analysis/motif_histogram.tsv`
+
+**Produced by:** `coevo analyse` / `rule analyse`
+
+Histogram of 16S motif positions (alignment offsets) across all sequences
+where the motif was detected.  Empty if no motif results are available.
+
+| Column | Description |
+|--------|-------------|
+| `offset` | Alignment offset (integer) at which the motif was found |
+| `count` | Number of sequences with the motif at that offset |
+
+Rows are sorted by `offset` in ascending order.

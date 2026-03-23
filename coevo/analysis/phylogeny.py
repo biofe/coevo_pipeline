@@ -191,6 +191,11 @@ def enterobacteriaceae_summary(
     using :class:`ete4.NCBITaxa`.  Strain-level entries are folded into their
     parent species row and are **not** reported as separate species.
 
+    A species-level node is only included when its direct parent in the NCBI
+    lineage has rank ``"genus"``.  This guards against misclassified or
+    anomalous taxonomy entries where a species sits directly under a
+    non-genus parent (e.g. subgenus or subfamily).
+
     The returned table contains one row per unique genus, one row per unique
     species, and one summary row for the family as a whole.  Each row reports:
 
@@ -258,12 +263,18 @@ def enterobacteriaceae_summary(
 
         genus_taxid: int | None = None
         species_taxid: int | None = None
-        for anc in lineage:
+        # ncbi.get_lineage() returns nodes ordered from root to the given taxid,
+        # so lineage[i-1] is always the direct parent of lineage[i] in the tree.
+        for i, anc in enumerate(lineage):
             rank = rank_map.get(anc, "no rank")
             if rank == "genus":
                 genus_taxid = anc
             elif rank == "species":
-                species_taxid = anc
+                # Only include a species if its direct parent in the lineage has
+                # rank "genus", guarding against misclassified or anomalous entries.
+                parent_rank = rank_map.get(lineage[i - 1], "no rank") if i > 0 else "no rank"
+                if parent_rank == "genus":
+                    species_taxid = anc
 
         records.append(
             {

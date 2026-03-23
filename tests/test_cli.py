@@ -220,8 +220,8 @@ class TestAnalyse:
         result = runner.invoke(app, ["analyse", "--help"])
         assert result.exit_code == 0
 
-    def test_analyse_writes_phylum_summary(self, tmp_path: Path) -> None:
-        """analyse command must write phylum_summary.tsv."""
+    def test_analyse_writes_output_files(self, tmp_path: Path) -> None:
+        """analyse command must write enterobacteriaceae_summary.tsv and motif_histogram.tsv."""
         from unittest.mock import patch, MagicMock
         config_path, results_dir = self._minimal_config(tmp_path)
 
@@ -229,23 +229,23 @@ class TestAnalyse:
             result = runner.invoke(app, ["analyse", "--config", config_path])
 
         assert result.exit_code == 0, result.output
-        phylum_file = results_dir / "analysis" / "phylum_summary.tsv"
-        assert phylum_file.exists()
+        assert (results_dir / "analysis" / "enterobacteriaceae_summary.tsv").exists()
+        assert (results_dir / "analysis" / "motif_histogram.tsv").exists()
 
-    def test_analyse_phylum_summary_contains_sections(self, tmp_path: Path) -> None:
-        """phylum_summary.tsv must contain the expected section headers."""
+    def test_analyse_enterobacteriaceae_summary_has_columns(self, tmp_path: Path) -> None:
+        """enterobacteriaceae_summary.tsv must contain the expected column headers."""
         config_path, results_dir = self._minimal_config(tmp_path)
 
         with patch("coevo.analysis.phylogeny.HAS_ETE4", False):
             result = runner.invoke(app, ["analyse", "--config", config_path])
 
         assert result.exit_code == 0, result.output
-        content = (results_dir / "analysis" / "phylum_summary.tsv").read_text()
-        assert "# SECTION: Enterobacteriaceae Summary" in content
-        assert "# SECTION: 16S Motif Position Histogram" in content
+        content = (results_dir / "analysis" / "enterobacteriaceae_summary.tsv").read_text()
+        assert "rank" in content
+        assert "name" in content
 
-    def test_analyse_histogram_section_when_motif_file_present(self, tmp_path: Path) -> None:
-        """When motif_results.tsv exists with offset data, histogram section is populated."""
+    def test_analyse_histogram_when_motif_file_present(self, tmp_path: Path) -> None:
+        """When motif_results.tsv exists with offset data, motif_histogram.tsv is populated."""
         config_path, results_dir = self._minimal_config(tmp_path)
         # Write a motif_results.tsv with offset data
         _write_tsv(
@@ -257,7 +257,7 @@ class TestAnalyse:
             result = runner.invoke(app, ["analyse", "--config", config_path])
 
         assert result.exit_code == 0, result.output
-        content = (results_dir / "analysis" / "phylum_summary.tsv").read_text()
+        content = (results_dir / "analysis" / "motif_histogram.tsv").read_text()
         # Histogram should have rows for offsets 0 and 1
         assert "0" in content
         assert "1" in content

@@ -212,7 +212,7 @@ def analyse(
     from coevo.analysis.cooccurrence import compute_cooccurrence
     from coevo.analysis.statistics import contingency_table, fisher_exact_test
     from coevo.analysis.phylogeny import enterobacteriaceae_summary, motif_position_histogram
-    from coevo.io.result_writer import write_dict, write_sections_to_tsv
+    from coevo.io.result_writer import write_dict, write_dataframe
 
     import pandas as pd
 
@@ -244,12 +244,13 @@ def analyse(
         motif_histogram = pd.DataFrame(columns=["offset", "count"])
         logger.info("Motif results not found; skipping 16S position histogram")
 
-    sections = [
-        ("Enterobacteriaceae Summary", entero_summary),
-        ("16S Motif Position Histogram", motif_histogram),
-    ]
-    write_sections_to_tsv(sections, analysis_dir / "phylum_summary.tsv")
-    logger.info(f"Phylum summary written to {analysis_dir / 'phylum_summary.tsv'}")
+    write_dataframe(entero_summary, analysis_dir / "enterobacteriaceae_summary.tsv")
+    logger.info(
+        f"Enterobacteriaceae summary written to {analysis_dir / 'enterobacteriaceae_summary.tsv'}"
+    )
+
+    write_dataframe(motif_histogram, analysis_dir / "motif_histogram.tsv")
+    logger.info(f"Motif position histogram written to {analysis_dir / 'motif_histogram.tsv'}")
 
 
 
